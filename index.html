@@ -1,0 +1,2312 @@
+<!DOCTYPE html>
+<html lang="en"><head><base href="https://1206057047-atari-embeds.googleusercontent.com/embeds/928209f300890cc864ba5f6dbbfbf517/inner-frame-minified.html?jsh=m%3B%2F_%2Fscs%2Fabc-static%2F_%2Fjs%2Fk%3Dgapi.lb.en.smUXTMp7CeY.O%2Fd%3D1%2Frs%3DAHpOoo_-UMASGI-dbLvJPxfO6N46l3l46A%2Fm%3D__features__" target="_blank">
+      <script>
+        (function() {
+          if (window.__atariInitRender) {
+            window.__atariInitRender(false);
+            return;
+          }
+          var isLiquid = false;
+          var guardsInstalled = false;
+          var LOCAL_DOWNLOAD_URL_RE = /^(?:blob|data):/i;
+          var PROTOCOL_RELATIVE_RE = /^[\/\\]{2}/;
+          var FORBIDDEN_TAG_RE = /^(?:iframe|frame|object|embed)$/i;
+          var XLINK_NS = 'http://www.w3.org/1999/xlink';
+          var origPreventDefault = Event.prototype.preventDefault;
+          var origStopPropagation = Event.prototype.stopPropagation;
+          var origStopImmediatePropagation =
+              Event.prototype.stopImmediatePropagation;
+          var origAddEventListener = EventTarget.prototype.addEventListener;
+          var origRemoveEventListener =
+              EventTarget.prototype.removeEventListener;
+          var origWindowStop = window.stop ? window.stop.bind(window) : null;
+          var origElementRemove = Element.prototype.remove;
+          var origGetAttribute = Element.prototype.getAttribute;
+          var origGetAttributeNS = Element.prototype.getAttributeNS;
+          var origHasAttribute = Element.prototype.hasAttribute;
+          var origHasAttributeNS = Element.prototype.hasAttributeNS;
+          var origSetAttribute = Element.prototype.setAttribute;
+          var origSetAttributeNS = Element.prototype.setAttributeNS;
+          var origSetAttributeNode = Element.prototype.setAttributeNode;
+          var origSetAttributeNodeNS = Element.prototype.setAttributeNodeNS;
+          var origRemoveAttribute = Element.prototype.removeAttribute;
+          var origRemoveAttributeNS = Element.prototype.removeAttributeNS;
+          var origComposedPath = Event.prototype.composedPath;
+          var origCreateElement = Document.prototype.createElement;
+          var origCreateElementNS = Document.prototype.createElementNS;
+          var validatingEvents =
+              typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+          var activeDeferredListeners = null;
+          var inProgrammaticClick = 0;
+
+          function isLinkElement(el) {
+            var tag = el && el.tagName && el.tagName.toLowerCase();
+            return tag === 'a' || tag === 'area';
+          }
+
+          function hasLinkHref(link) {
+            return origHasAttribute.call(link, 'href') ||
+                origHasAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns the href of an HTML or SVG link, which may only have the
+          // legacy xlink:href attribute.
+          function getLinkHref(link) {
+            return origGetAttribute.call(link, 'href') ||
+                origGetAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          function removeLinkHref(link) {
+            origRemoveAttribute.call(link, 'href');
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns whether the link downloads a file that the app created,
+          // which doesn't send data to other sites.
+          function isLocalDownloadLink(link, href) {
+            return origHasAttribute.call(link, 'download') &&
+                LOCAL_DOWNLOAD_URL_RE.test(href);
+          }
+
+          function isRefreshValue(val) {
+            return String(val || '').trim().toLowerCase() === 'refresh';
+          }
+
+          function purgeMetaRefresh(root) {
+            if (!root || !root.querySelectorAll) return;
+            var metas = root.querySelectorAll('meta[http-equiv]');
+            for (var i = 0; i < metas.length; i++) {
+              if (isRefreshValue(
+                  origGetAttribute.call(metas[i], 'http-equiv'))) {
+                origElementRemove.call(metas[i]);
+              }
+            }
+            var frames = root.querySelectorAll('iframe, frame, object, embed');
+            for (var j = 0; j < frames.length; j++) {
+              origElementRemove.call(frames[j]);
+            }
+          }
+
+          function getParentOrHost(node) {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+            var parent = node.parentNode;
+            return parent && parent.host ? parent.host : null;
+          }
+
+          function findLinkFromNode(startNode, requireHref) {
+            var el = startNode;
+            while (el && el !== document) {
+              if (isLinkElement(el) && (!requireHref || hasLinkHref(el))) {
+                return el;
+              }
+              el = getParentOrHost(el);
+            }
+            return null;
+          }
+
+          function findLinkFromEvent(e) {
+            if (origComposedPath) {
+              try {
+                var path = origComposedPath.call(e);
+                for (var i = 0; i < path.length; i++) {
+                  var node = path[i];
+                  if (isLinkElement(node) && hasLinkHref(node)) {
+                    return node;
+                  }
+                }
+              } catch (err) {}
+            }
+            return findLinkFromNode(e.target, true);
+          }
+
+          // Keeps the app from opening popups, navigating its frame, and
+          // adding meta refresh tags. document.open() keeps the window, its
+          // prototypes, and the document, so these are installed once per
+          // frame rather than on every render.
+          function installNavigationGuards() {
+            try {
+              Object.defineProperty(window, 'open', {
+                value: function() {
+                  return null;
+                },
+                writable: false,
+                configurable: false
+              });
+            } catch (err) {
+              window.open = function() {
+                return null;
+              };
+            }
+            if (window.navigation && window.navigation.addEventListener) {
+              origAddEventListener.call(
+                  window.navigation, 'navigate', function(e) {
+                    if (!e.cancelable || e.destination.sameDocument) return;
+                    if (e.downloadRequest !== null &&
+                        LOCAL_DOWNLOAD_URL_RE.test(e.destination.url)) {
+                      return;
+                    }
+                    origPreventDefault.call(e);
+                  }, true);
+            }
+            var iframeWinDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentWindow');
+            if (iframeWinDesc && iframeWinDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentWindow', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            var iframeDocDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentDocument');
+            if (iframeDocDesc && iframeDocDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentDocument', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            Document.prototype.createElement = function(tagName, options) {
+              if (FORBIDDEN_TAG_RE.test(String(tagName || ''))) {
+                return origCreateElement.call(this, 'div', options);
+              }
+              return origCreateElement.apply(this, arguments);
+            };
+            if (origCreateElementNS) {
+              Document.prototype.createElementNS = function(ns, qName, opts) {
+                var local = String(qName || '').split(':').pop();
+                if (FORBIDDEN_TAG_RE.test(local)) {
+                  return origCreateElement.call(this, 'div');
+                }
+                return origCreateElementNS.apply(this, arguments);
+              };
+            }
+            var origClick = HTMLElement.prototype.click;
+            HTMLElement.prototype.click = function() {
+              var link = findLinkFromNode(this, true);
+              if (link) {
+                var clickHref = (getLinkHref(link) || '').trim();
+                if (!clickHref.startsWith('#') &&
+                    !isLocalDownloadLink(link, clickHref)) {
+                  return;
+                }
+              }
+              inProgrammaticClick++;
+              try {
+                return origClick.apply(this, arguments);
+              } finally {
+                inProgrammaticClick--;
+              }
+            };
+            function isMetaRefreshAttr(el, name, value) {
+              return el && el.tagName &&
+                  el.tagName.toLowerCase() === 'meta' &&
+                  String(name || '').trim().toLowerCase() === 'http-equiv' &&
+                  isRefreshValue(value);
+            }
+            function validateIfActiveLink(el) {
+              if (!activeDeferredListeners || !isLinkElement(el) ||
+                  !hasLinkHref(el)) {
+                return;
+              }
+              var curHref = (getLinkHref(el) || '').trim();
+              if (!curHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    activeDeferredListeners.event, el, curHref,
+                    activeDeferredListeners.programmatic);
+              }
+            }
+            Element.prototype.setAttribute = function(name, value) {
+              if (isMetaRefreshAttr(this, name, value)) {
+                origElementRemove.call(this);
+                return;
+              }
+              var res = origSetAttribute.apply(this, arguments);
+              if (String(name || '').toLowerCase() === 'href') {
+                validateIfActiveLink(this);
+              }
+              return res;
+            };
+            if (origSetAttributeNS) {
+              Element.prototype.setAttributeNS = function(ns, name, value) {
+                var local = String(name || '');
+                if (local.includes(':')) local = local.split(':').pop();
+                if (isMetaRefreshAttr(this, local, value)) {
+                  origElementRemove.call(this);
+                  return;
+                }
+                var res = origSetAttributeNS.apply(this, arguments);
+                if (local.toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNode) {
+              Element.prototype.setAttributeNode = function(attr) {
+                if (attr && isMetaRefreshAttr(this, attr.name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNode.apply(this, arguments);
+                if (attr && String(attr.name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNodeNS) {
+              Element.prototype.setAttributeNodeNS = function(attr) {
+                var name = attr && (attr.localName || attr.name);
+                if (attr && isMetaRefreshAttr(this, name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNodeNS.apply(this, arguments);
+                if (String(name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            function wrapHrefSetter(ctor) {
+              if (!ctor || !ctor.prototype) return;
+              var hrefDesc = Object.getOwnPropertyDescriptor(
+                  ctor.prototype, 'href');
+              if (hrefDesc && hrefDesc.set) {
+                Object.defineProperty(ctor.prototype, 'href', {
+                  get: hrefDesc.get,
+                  set: function(value) {
+                    hrefDesc.set.call(this, value);
+                    validateIfActiveLink(this);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            if (typeof HTMLAnchorElement !== 'undefined') {
+              wrapHrefSetter(HTMLAnchorElement);
+            }
+            if (typeof HTMLAreaElement !== 'undefined') {
+              wrapHrefSetter(HTMLAreaElement);
+            }
+            if (typeof HTMLMetaElement !== 'undefined') {
+              var desc = Object.getOwnPropertyDescriptor(
+                  HTMLMetaElement.prototype, 'httpEquiv');
+              if (desc && desc.set) {
+                Object.defineProperty(HTMLMetaElement.prototype, 'httpEquiv', {
+                  get: desc.get,
+                  set: function(value) {
+                    if (isRefreshValue(value)) {
+                      origElementRemove.call(this);
+                      return;
+                    }
+                    desc.set.call(this, value);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            Event.prototype.stopPropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopPropagation.apply(this, arguments);
+            };
+            Event.prototype.stopImmediatePropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopImmediatePropagation.apply(this, arguments);
+            };
+            var cancelBubbleDesc = Object.getOwnPropertyDescriptor(
+                Event.prototype, 'cancelBubble');
+            if (cancelBubbleDesc && cancelBubbleDesc.set) {
+              Object.defineProperty(Event.prototype, 'cancelBubble', {
+                get: cancelBubbleDesc.get,
+                set: function(val) {
+                  if (val && validatingEvents && validatingEvents.has(this)) {
+                    return;
+                  }
+                  cancelBubbleDesc.set.call(this, val);
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
+            function wrapAddEventListener(origFn) {
+              return function(type, listener, options) {
+                var res = origFn.apply(this, arguments);
+                if (activeDeferredListeners &&
+                    type === activeDeferredListeners.type) {
+                  origRemoveEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                  origAddEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                }
+                return res;
+              };
+            }
+            var origWinAdd = window.addEventListener || origAddEventListener;
+            EventTarget.prototype.addEventListener =
+                wrapAddEventListener(origAddEventListener);
+            if (typeof Window !== 'undefined' && Window.prototype) {
+              try {
+                Window.prototype.addEventListener =
+                    wrapAddEventListener(origWinAdd);
+              } catch (err) {}
+            }
+            try {
+              window.addEventListener = wrapAddEventListener(origWinAdd);
+            } catch (err) {}
+            function observeMutations(target) {
+              if (!target || typeof MutationObserver === 'undefined') return;
+              new MutationObserver(function(mutations) {
+                if (activeDeferredListeners) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (m.type === 'attributes' &&
+                        isLinkElement(m.target) &&
+                        hasLinkHref(m.target)) {
+                      var mHref = (getLinkHref(m.target) || '').trim();
+                      if (!mHref.startsWith('#')) {
+                        handleLiquidExternalLink(
+                            activeDeferredListeners.event, m.target, mHref,
+                            activeDeferredListeners.programmatic);
+                      }
+                    }
+                  }
+                }
+                purgeMetaRefresh(target);
+              }).observe(target, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['http-equiv', 'href']
+              });
+            }
+            observeMutations(document);
+            if (Element.prototype.attachShadow) {
+              var origAttachShadow = Element.prototype.attachShadow;
+              Element.prototype.attachShadow = function() {
+                var sr = origAttachShadow.apply(this, arguments);
+                observeMutations(sr);
+                return sr;
+              };
+            }
+          }
+
+          // Returns the URL of an absolute or protocol-relative href, or null.
+          function parseAbsoluteUrl(href) {
+            var candidate =
+                PROTOCOL_RELATIVE_RE.test(href) ? 'https:' + href : href;
+            try {
+              return new URL(candidate);
+            } catch (err) {
+              return null;
+            }
+          }
+
+          // Opens the link in a new tab through the Google redirector, which
+          // warns users before they leave for another site.
+          function routeThroughRedirector(link, url) {
+            var redirectUrl = url.href;
+            if (url.origin !== 'https://www.google.com' ||
+                url.pathname !== '/url' ||
+                !url.searchParams.has('q')) {
+              redirectUrl = 'https://www.google.com/url?q=' +
+                  encodeURIComponent(url.href);
+            }
+            origSetAttribute.call(link, 'href', redirectUrl);
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+            origSetAttribute.call(link, 'target', '_blank');
+            origSetAttribute.call(link, 'rel', 'noopener noreferrer');
+          }
+
+          // Lets Liquid App links open web pages only through the redirector,
+          // and blocks links with other protocols, such as javascript:.
+          // Context menu events rewrite or remove the link attribute so that
+          // "Open link in new tab" also goes through the redirector or is
+          // disabled.
+          function handleLiquidExternalLink(e, link, href, programmatic) {
+            if (isLocalDownloadLink(link, href)) return;
+            if (programmatic || inProgrammaticClick > 0) {
+              removeLinkHref(link);
+              origPreventDefault.call(e);
+              origStopPropagation.call(e);
+              return;
+            }
+            var url = parseAbsoluteUrl(href);
+            var protocol = url ? url.protocol : '';
+            if (protocol === 'http:' || protocol === 'https:') {
+              routeThroughRedirector(link, url);
+            } else if (protocol !== 'mailto:' && protocol !== 'tel:') {
+              if (e.type === 'contextmenu') {
+                removeLinkHref(link);
+              } else {
+                origPreventDefault.call(e);
+                origStopPropagation.call(e);
+              }
+            }
+          }
+
+          function validateLiquidLinkAfterBubble(e, anchor, programmatic) {
+            if (validatingEvents) {
+              validatingEvents.add(e);
+            }
+            var state = {
+              type: e.type,
+              fn: onBubble,
+              event: e,
+              programmatic: programmatic
+            };
+            activeDeferredListeners = state;
+            function checkTarget(ev) {
+              var targetLink = anchor || findLinkFromEvent(ev);
+              if (!targetLink || !hasLinkHref(targetLink)) return;
+              var latestHref = (getLinkHref(targetLink) || '').trim();
+              if (!latestHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    ev, targetLink, latestHref, programmatic);
+              }
+            }
+            Promise.resolve().then(function() {
+              checkTarget(e);
+              if (activeDeferredListeners === state) {
+                activeDeferredListeners = null;
+              }
+            });
+            function onBubble(ev) {
+              origRemoveEventListener.call(window, ev.type, onBubble, false);
+              checkTarget(ev);
+            }
+            origAddEventListener.call(window, e.type, onBubble, false);
+          }
+
+          function handleLinkClick(e) {
+            var programmatic = inProgrammaticClick > 0;
+            // Find the nearest ancestor link (handles nested icons, spans,
+            // svgs, and shadow DOM).
+            var anchor = findLinkFromEvent(e);
+            if (!anchor) {
+              if (isLiquid) {
+                validateLiquidLinkAfterBubble(e, null, programmatic);
+              }
+              return;
+            }
+
+            if (isLiquid) {
+              validateLiquidLinkAfterBubble(e, anchor, programmatic);
+            }
+            var href = (getLinkHref(anchor) || '').trim();
+            if (!href.startsWith('#')) {
+              if (isLiquid) {
+                handleLiquidExternalLink(e, anchor, href, programmatic);
+              }
+              return;
+            }
+            if (e.type === 'contextmenu') return;
+
+            // Prevent default <base target="_blank"> navigation to a new blank tab.
+            origPreventDefault.call(e);
+            if (!isLiquid) {
+              origStopPropagation.call(e);
+            }
+
+            // Handle empty anchor or top anchor.
+            if (href === '#' || href === '#top') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              return;
+            }
+
+            // Resolve target element by id, falling back to legacy name attribute.
+            var targetId = href.slice(1);
+            try {
+              targetId = decodeURIComponent(targetId);
+            } catch (err) {}
+
+            var targetEl = document.getElementById(targetId);
+            if (!targetEl) {
+              try {
+                var escaped = window.CSS && CSS.escape ? CSS.escape(targetId) : targetId.replace(/["\\]/g, '\\$&');
+                targetEl = document.querySelector('[name="' + escaped + '"]');
+              } catch (err) {}
+            }
+
+            // Smoothly scroll to the target within the embed and update URL hash history.
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (window.history && window.history.pushState) {
+                window.history.pushState(null, '', href);
+              }
+            }
+          }
+
+          function initRender(nextIsLiquid) {
+            isLiquid = isLiquid || !!nextIsLiquid;
+            if (isLiquid) {
+              if (!guardsInstalled) {
+                guardsInstalled = true;
+                installNavigationGuards();
+              } else {
+                try {
+                  window.addEventListener =
+                      EventTarget.prototype.addEventListener;
+                } catch (err) {}
+              }
+              // document.open() removes the window's listeners, so this is
+              // added on every render.
+              origAddEventListener.call(window, 'beforeunload', function(e) {
+                origPreventDefault.call(e);
+                if (origWindowStop) {
+                  origWindowStop();
+                }
+              }, true);
+              purgeMetaRefresh(document);
+            }
+            // Listen during capturing phase to preempt <base target="_blank">.
+            origAddEventListener.call(
+                document, 'click', handleLinkClick, true);
+            if (isLiquid) {
+              origAddEventListener.call(
+                  document, 'auxclick', handleLinkClick, true);
+              origAddEventListener.call(
+                  document, 'contextmenu', handleLinkClick, true);
+            }
+          }
+
+          try {
+            Object.defineProperty(window, '__atariInitRender', {
+              value: initRender,
+              writable: false,
+              configurable: false
+            });
+          } catch (err) {
+            window.__atariInitRender = initRender;
+          }
+          initRender(false);
+        })();
+      </script>
+    
+
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BAUHAUS DRAW // Live Event Check-In &amp; Cloud Raffle</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- QRCode.js for high-contrast client-side QR rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&amp;family=JetBrains+Mono:wght@500;700;800&amp;display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        paper: '#F7F5F0',
+                        ink: '#121212',
+                        bauhausRed: '#E63946',
+                        cobalt: '#1D3557',
+                        mustard: '#F4A261',
+                        surface: '#FFFFFF'
+                    },
+                    boxShadow: {
+                        'hard': '4px 4px 0px 0px #121212',
+                        'hard-sm': '2px 2px 0px 0px #121212',
+                        'hard-lg': '8px 8px 0px 0px #121212',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #F7F5F0;
+            color: #121212;
+            background-image: radial-gradient(#121212 0.65px, transparent 0.65px);
+            background-size: 20px 20px;
+        }
+        .bauhaus-btn {
+            transition: transform 0.08s ease, box-shadow 0.08s ease;
+        }
+        .bauhaus-btn:active:not(:disabled) {
+            transform: translate(3px, 3px);
+            box-shadow: 0px 0px 0px 0px #121212 !important;
+        }
+        #qrcode img, #qrcode canvas, #big-qrcode img, #big-qrcode canvas {
+            margin: 0 auto;
+            display: block;
+            max-width: 100%;
+            height: auto !important;
+        }
+        @keyframes slotPulse {
+            0%, 100% { border-color: #121212; }
+            50% { border-color: #E63946; }
+        }
+        .slot-spinning {
+            animation: slotPulse 0.3s infinite;
+        }
+    </style>
+<style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:Inter, Helvetica Neue, Arial, sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:JetBrains Mono, monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.sticky{position:sticky}.inset-0{inset:0px}.bottom-1\.5{bottom:0.375rem}.bottom-4{bottom:1rem}.left-1\.5{left:0.375rem}.right-1\.5{right:0.375rem}.right-4{right:1rem}.top-0{top:0px}.top-1\.5{top:0.375rem}.top-4{top:1rem}.z-30{z-index:30}.z-40{z-index:40}.z-50{z-index:50}.col-span-2{grid-column:span 2 / span 2}.col-span-4{grid-column:span 4 / span 4}.col-span-6{grid-column:span 6 / span 6}.mx-auto{margin-left:auto;margin-right:auto}.mb-1{margin-bottom:0.25rem}.mb-1\.5{margin-bottom:0.375rem}.mb-2{margin-bottom:0.5rem}.mb-3{margin-bottom:0.75rem}.mb-4{margin-bottom:1rem}.mb-5{margin-bottom:1.25rem}.mb-6{margin-bottom:1.5rem}.mb-8{margin-bottom:2rem}.mt-0\.5{margin-top:0.125rem}.mt-1{margin-top:0.25rem}.mt-2{margin-top:0.5rem}.mt-2\.5{margin-top:0.625rem}.mt-4{margin-top:1rem}.mt-6{margin-top:1.5rem}.mt-auto{margin-top:auto}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.hidden{display:none}.h-12{height:3rem}.h-16{height:4rem}.h-2{height:0.5rem}.h-3{height:0.75rem}.h-3\.5{height:0.875rem}.h-4{height:1rem}.h-40{height:10rem}.h-5{height:1.25rem}.h-64{height:16rem}.h-7{height:1.75rem}.h-9{height:2.25rem}.h-\[560px\]{height:560px}.min-h-0{min-height:0px}.min-h-\[200px\]{min-height:200px}.min-h-screen{min-height:100vh}.w-1\/3{width:33.333333%}.w-12{width:3rem}.w-2{width:0.5rem}.w-3{width:0.75rem}.w-3\.5{width:0.875rem}.w-4{width:1rem}.w-40{width:10rem}.w-5{width:1.25rem}.w-64{width:16rem}.w-7{width:1.75rem}.w-9{width:2.25rem}.w-full{width:100%}.max-w-2xl{max-width:42rem}.max-w-4xl{max-width:56rem}.max-w-7xl{max-width:80rem}.max-w-full{max-width:100%}.max-w-lg{max-width:32rem}.max-w-md{max-width:28rem}.max-w-sm{max-width:24rem}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.rotate-45{--tw-rotate:45deg;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.scale-75{--tw-scale-x:.75;--tw-scale-y:.75;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.transform{transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}@keyframes spin{to{transform:rotate(360deg)}}.animate-spin{animation:spin 1s linear infinite}.select-all{-webkit-user-select:all;user-select:all}.grid-cols-1{grid-template-columns:repeat(1, minmax(0, 1fr))}.grid-cols-12{grid-template-columns:repeat(12, minmax(0, 1fr))}.grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.grid-cols-3{grid-template-columns:repeat(3, minmax(0, 1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-start{align-items:flex-start}.items-center{align-items:center}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1\.5{gap:0.375rem}.gap-2{gap:0.5rem}.gap-2\.5{gap:0.625rem}.gap-3{gap:0.75rem}.gap-4{gap:1rem}.gap-6{gap:1.5rem}.-space-x-1 > :not([hidden]) ~ :not([hidden]){--tw-space-x-reverse:0;margin-right:calc(-0.25rem * var(--tw-space-x-reverse));margin-left:calc(-0.25rem * calc(1 - var(--tw-space-x-reverse)))}.space-y-2\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.625rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.625rem * var(--tw-space-y-reverse))}.space-y-4 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem * var(--tw-space-y-reverse))}.space-y-6 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1.5rem * var(--tw-space-y-reverse))}.divide-y-2 > :not([hidden]) ~ :not([hidden]){--tw-divide-y-reverse:0;border-top-width:calc(2px * calc(1 - var(--tw-divide-y-reverse)));border-bottom-width:calc(2px * var(--tw-divide-y-reverse))}.divide-neutral-200 > :not([hidden]) ~ :not([hidden]){--tw-divide-opacity:1;border-color:rgb(229 229 229 / var(--tw-divide-opacity, 1))}.self-end{align-self:flex-end}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.break-words{overflow-wrap:break-word}.break-all{word-break:break-all}.rounded-full{border-radius:9999px}.border{border-width:1px}.border-2{border-width:2px}.border-4{border-width:4px}.border-b-2{border-bottom-width:2px}.border-r-2{border-right-width:2px}.border-t-2{border-top-width:2px}.border-dashed{border-style:dashed}.border-ink{--tw-border-opacity:1;border-color:rgb(18 18 18 / var(--tw-border-opacity, 1))}.border-neutral-300{--tw-border-opacity:1;border-color:rgb(212 212 212 / var(--tw-border-opacity, 1))}.border-transparent{border-color:transparent}.border-t-bauhausRed{--tw-border-opacity:1;border-top-color:rgb(230 57 70 / var(--tw-border-opacity, 1))}.bg-amber-500{--tw-bg-opacity:1;background-color:rgb(245 158 11 / var(--tw-bg-opacity, 1))}.bg-bauhausRed{--tw-bg-opacity:1;background-color:rgb(230 57 70 / var(--tw-bg-opacity, 1))}.bg-cobalt{--tw-bg-opacity:1;background-color:rgb(29 53 87 / var(--tw-bg-opacity, 1))}.bg-emerald-500{--tw-bg-opacity:1;background-color:rgb(16 185 129 / var(--tw-bg-opacity, 1))}.bg-ink{--tw-bg-opacity:1;background-color:rgb(18 18 18 / var(--tw-bg-opacity, 1))}.bg-ink\/75{background-color:rgb(18 18 18 / 0.75)}.bg-ink\/90{background-color:rgb(18 18 18 / 0.9)}.bg-mustard{--tw-bg-opacity:1;background-color:rgb(244 162 97 / var(--tw-bg-opacity, 1))}.bg-mustard\/25{background-color:rgb(244 162 97 / 0.25)}.bg-paper{--tw-bg-opacity:1;background-color:rgb(247 245 240 / var(--tw-bg-opacity, 1))}.bg-surface{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.p-0\.5{padding:0.125rem}.p-2{padding:0.5rem}.p-3{padding:0.75rem}.p-3\.5{padding:0.875rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.px-1{padding-left:0.25rem;padding-right:0.25rem}.px-1\.5{padding-left:0.375rem;padding-right:0.375rem}.px-2{padding-left:0.5rem;padding-right:0.5rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-3{padding-left:0.75rem;padding-right:0.75rem}.px-3\.5{padding-left:0.875rem;padding-right:0.875rem}.px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}.py-0\.5{padding-top:0.125rem;padding-bottom:0.125rem}.py-1{padding-top:0.25rem;padding-bottom:0.25rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}.py-12{padding-top:3rem;padding-bottom:3rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.py-2\.5{padding-top:0.625rem;padding-bottom:0.625rem}.py-24{padding-top:6rem;padding-bottom:6rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.py-3\.5{padding-top:0.875rem;padding-bottom:0.875rem}.py-4{padding-top:1rem;padding-bottom:1rem}.py-6{padding-top:1.5rem;padding-bottom:1.5rem}.pb-3{padding-bottom:0.75rem}.pt-2{padding-top:0.5rem}.pt-3{padding-top:0.75rem}.text-left{text-align:left}.text-center{text-align:center}.font-mono{font-family:JetBrains Mono, monospace}.font-sans{font-family:Inter, Helvetica Neue, Arial, sans-serif}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-base{font-size:1rem;line-height:1.5rem}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-xs{font-size:0.75rem;line-height:1rem}.font-black{font-weight:900}.font-bold{font-weight:700}.font-extrabold{font-weight:800}.font-medium{font-weight:500}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.leading-none{line-height:1}.leading-relaxed{line-height:1.625}.leading-snug{line-height:1.375}.leading-tight{line-height:1.25}.tracking-tight{letter-spacing:-0.025em}.tracking-wider{letter-spacing:0.05em}.tracking-widest{letter-spacing:0.1em}.text-bauhausRed{--tw-text-opacity:1;color:rgb(230 57 70 / var(--tw-text-opacity, 1))}.text-cobalt{--tw-text-opacity:1;color:rgb(29 53 87 / var(--tw-text-opacity, 1))}.text-ink{--tw-text-opacity:1;color:rgb(18 18 18 / var(--tw-text-opacity, 1))}.text-neutral-400{--tw-text-opacity:1;color:rgb(163 163 163 / var(--tw-text-opacity, 1))}.text-neutral-500{--tw-text-opacity:1;color:rgb(115 115 115 / var(--tw-text-opacity, 1))}.text-neutral-600{--tw-text-opacity:1;color:rgb(82 82 82 / var(--tw-text-opacity, 1))}.text-neutral-700{--tw-text-opacity:1;color:rgb(64 64 64 / var(--tw-text-opacity, 1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.underline{-webkit-text-decoration-line:underline;text-decoration-line:underline}.shadow-hard{--tw-shadow:4px 4px 0px 0px #121212;--tw-shadow-colored:4px 4px 0px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-hard-lg{--tw-shadow:8px 8px 0px 0px #121212;--tw-shadow-colored:8px 8px 0px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-hard-sm{--tw-shadow:2px 2px 0px 0px #121212;--tw-shadow-colored:2px 2px 0px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.transition-colors{transition-property:color, background-color, border-color, fill, stroke, -webkit-text-decoration-color;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, -webkit-text-decoration-color;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.selection\:bg-mustard *::selection{--tw-bg-opacity:1;background-color:rgb(244 162 97 / var(--tw-bg-opacity, 1))}.selection\:text-ink *::selection{--tw-text-opacity:1;color:rgb(18 18 18 / var(--tw-text-opacity, 1))}.selection\:bg-mustard::selection{--tw-bg-opacity:1;background-color:rgb(244 162 97 / var(--tw-bg-opacity, 1))}.selection\:text-ink::selection{--tw-text-opacity:1;color:rgb(18 18 18 / var(--tw-text-opacity, 1))}.hover\:border-ink:hover{--tw-border-opacity:1;border-color:rgb(18 18 18 / var(--tw-border-opacity, 1))}.hover\:bg-bauhausRed:hover{--tw-bg-opacity:1;background-color:rgb(230 57 70 / var(--tw-bg-opacity, 1))}.hover\:bg-ink:hover{--tw-bg-opacity:1;background-color:rgb(18 18 18 / var(--tw-bg-opacity, 1))}.hover\:bg-mustard:hover{--tw-bg-opacity:1;background-color:rgb(244 162 97 / var(--tw-bg-opacity, 1))}.hover\:bg-surface:hover{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.hover\:bg-white:hover{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.hover\:text-bauhausRed:hover{--tw-text-opacity:1;color:rgb(230 57 70 / var(--tw-text-opacity, 1))}.hover\:text-ink:hover{--tw-text-opacity:1;color:rgb(18 18 18 / var(--tw-text-opacity, 1))}.hover\:text-white:hover{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.focus\:border-cobalt:focus{--tw-border-opacity:1;border-color:rgb(29 53 87 / var(--tw-border-opacity, 1))}.focus\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255 / var(--tw-bg-opacity, 1))}.focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}.disabled\:cursor-not-allowed:disabled{cursor:not-allowed}.disabled\:opacity-40:disabled{opacity:0.4}@media (min-width: 640px){.sm\:h-72{height:18rem}.sm\:w-72{width:18rem}.sm\:flex-row{flex-direction:row}.sm\:items-center{align-items:center}.sm\:gap-3{gap:0.75rem}.sm\:gap-8{gap:2rem}.sm\:p-10{padding:2.5rem}.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:p-8{padding:2rem}.sm\:px-6{padding-left:1.5rem;padding-right:1.5rem}.sm\:py-8{padding-top:2rem;padding-bottom:2rem}.sm\:text-3xl{font-size:1.875rem;line-height:2.25rem}.sm\:text-4xl{font-size:2.25rem;line-height:2.5rem}.sm\:text-5xl{font-size:3rem;line-height:1}.sm\:text-base{font-size:1rem;line-height:1.5rem}.sm\:text-xl{font-size:1.25rem;line-height:1.75rem}.sm\:text-xs{font-size:0.75rem;line-height:1rem}}@media (min-width: 768px){.md\:grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.md\:flex-row{flex-direction:row}.md\:items-center{align-items:center}.md\:self-auto{align-self:auto}}@media (min-width: 1024px){.lg\:col-span-4{grid-column:span 4 / span 4}.lg\:flex{display:flex}.lg\:grid-cols-12{grid-template-columns:repeat(12, minmax(0, 1fr))}}</style></head>
+<body class="min-h-screen flex flex-col font-sans selection:bg-mustard selection:text-ink" data-gr-ext-disabled="forever">
+
+    <!-- Toast Notification Stack -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm"></div>
+
+    <!-- Custom Confirm Dialog -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-ink/75 flex items-center justify-center p-4">
+        <div class="bg-surface border-2 border-ink shadow-hard-lg max-w-md w-full p-6">
+            <div class="flex items-center gap-2.5 mb-3">
+                <span class="w-3.5 h-3.5 bg-bauhausRed border border-ink inline-block"></span>
+                <h3 id="confirm-title" class="font-black text-lg uppercase tracking-tight">Confirm Action</h3>
+            </div>
+            <p id="confirm-message" class="text-sm font-medium text-neutral-700 mb-6"></p>
+            <div class="flex justify-end gap-3">
+                <button id="confirm-cancel-btn" class="bauhaus-btn px-4 py-2 bg-surface border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">Cancel</button>
+                <button id="confirm-ok-btn" class="bauhaus-btn px-4 py-2 bg-bauhausRed text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Set Public URL Modal -->
+    <div id="public-url-modal" class="fixed inset-0 z-50 bg-ink/75 flex items-center justify-center p-4 hidden">
+        <div class="bg-surface border-2 border-ink shadow-hard-lg max-w-lg w-full p-6">
+            <div class="flex items-center justify-between border-b-2 border-ink pb-3 mb-4">
+                <div class="flex items-center gap-2">
+                    <span class="w-3.5 h-3.5 bg-cobalt border border-ink inline-block"></span>
+                    <h3 class="font-black text-lg uppercase tracking-tight">Set Public Hosted URL</h3>
+                </div>
+                <button id="close-url-modal-btn" class="w-7 h-7 bg-paper border-2 border-ink font-black text-xs flex items-center justify-center hover:bg-bauhausRed hover:text-white">✕</button>
+            </div>
+            <p class="text-xs font-medium text-neutral-700 leading-relaxed mb-4">
+                When running inside a local file or chat preview sandbox, phones cannot reach the preview URL. Host this downloaded HTML file on <strong>Netlify Drop</strong>, <strong>GitHub Pages</strong>, or <strong>Vercel</strong>, then paste your live <code class="font-mono bg-paper px-1 border border-ink">https://</code> link below to update the QR code immediately.
+            </p>
+            <form id="public-url-form" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-black uppercase tracking-wider mb-1.5" for="custom-base-url-input">Public Base URL</label>
+                    <input id="custom-base-url-input" type="url" placeholder="https://your-raffle-app.netlify.app" class="w-full px-3.5 py-2.5 bg-paper border-2 border-ink font-mono text-xs focus:outline-none focus:bg-white focus:border-cobalt">
+                </div>
+                <div class="flex flex-wrap justify-between items-center gap-2 pt-2">
+                    <button type="button" id="reset-base-url-btn" class="bauhaus-btn px-3 py-2 bg-paper border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider text-neutral-700">
+                        Reset to Auto
+                    </button>
+                    <div class="flex gap-2">
+                        <button type="button" id="download-html-modal-btn" class="bauhaus-btn px-3 py-2 bg-mustard border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                            ↓ Download HTML
+                        </button>
+                        <button type="submit" class="bauhaus-btn px-4 py-2 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                            Save &amp; Update QR
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Full-Screen Projected QR Modal -->
+    <div id="big-qr-modal" class="fixed inset-0 z-40 bg-ink/90 flex items-center justify-center p-4 hidden">
+        <div class="bg-surface border-2 border-ink shadow-hard-lg max-w-lg w-full p-6 sm:p-8 text-center relative">
+            <button id="close-big-qr-btn" class="bauhaus-btn absolute top-4 right-4 w-9 h-9 bg-bauhausRed text-white border-2 border-ink shadow-hard-sm font-black text-base flex items-center justify-center">✕</button>
+            <div class="inline-flex items-center gap-2 mb-3">
+                <span class="w-3.5 h-3.5 rounded-full bg-bauhausRed border border-ink"></span>
+                <span class="w-3.5 h-3.5 bg-cobalt border border-ink"></span>
+                <span class="w-3.5 h-3.5 bg-mustard border border-ink rotate-45"></span>
+            </div>
+            <h2 id="big-qr-event-title" class="font-black text-2xl sm:text-3xl uppercase tracking-tight mb-1">9077</h2>
+            <p class="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6">Scan with Phone Camera to Join Raffle</p>
+
+            <div class="p-4 bg-white border-2 border-ink shadow-hard inline-block mb-6">
+                <div id="big-qrcode" class="w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center" title="https://1206057047-atari-embeds.googleusercontent.com/embeds/928209f300890cc864ba5f6dbbfbf517/inner-frame-minified.html?room=WW4DFA&amp;mode=join"><canvas width="272" height="272" style="display: none;"></canvas><img src="data:image/png;base64,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" style="display: block;"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 text-left">
+                <div class="bg-paper border-2 border-ink p-3">
+                    <p class="text-[10px] font-black uppercase text-neutral-500">Room Code</p>
+                    <p id="big-qr-room-code" class="font-mono text-2xl font-extrabold tracking-widest text-cobalt">WW4DFA</p>
+                </div>
+                <div class="bg-paper border-2 border-ink p-3">
+                    <p class="text-[10px] font-black uppercase text-neutral-500">Checked In</p>
+                    <p id="big-qr-live-count" class="font-mono text-2xl font-extrabold text-bauhausRed">0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dismissible Sandbox Detection Banner -->
+    <div id="sandbox-banner" class="bg-mustard border-b-2 border-ink px-4 py-2.5">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div class="flex items-start sm:items-center gap-2.5 text-xs font-semibold text-ink">
+                <span class="px-1.5 py-0.5 bg-ink text-white font-mono font-bold text-[10px] uppercase shrink-0">SANDBOX</span>
+                <span>
+                    <strong>Preview Sandbox Detected</strong> — Download this HTML file and host it on <strong>Netlify Drop</strong> or <strong>GitHub Pages</strong> for a public link, or enter your hosted URL so the QR code points to your live site.
+                </span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                <button id="banner-download-btn" class="bauhaus-btn px-3 py-1.5 bg-surface border-2 border-ink shadow-hard-sm font-bold text-[11px] uppercase tracking-wider">
+                    ↓ Download HTML
+                </button>
+                <button id="banner-set-url-btn" class="bauhaus-btn px-3 py-1.5 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-bold text-[11px] uppercase tracking-wider">
+                    Set Public URL
+                </button>
+                <button id="dismiss-sandbox-btn" title="Dismiss Banner" class="px-2 py-1 font-black text-xs hover:bg-ink hover:text-white border border-transparent hover:border-ink">
+                    ✕
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Bauhaus Navigation Header -->
+    <header class="bg-surface border-b-2 border-ink sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+            <!-- Brand Identity -->
+            <a href="?" class="flex items-center gap-3 shrink-0">
+                <div class="flex items-center -space-x-1">
+                    <span class="w-4 h-4 rounded-full bg-bauhausRed border-2 border-ink"></span>
+                    <span class="w-4 h-4 bg-mustard border-2 border-ink"></span>
+                    <span class="w-4 h-4 bg-cobalt border-2 border-ink transform rotate-45 scale-75"></span>
+                </div>
+                <span class="font-black text-lg sm:text-xl tracking-tight uppercase">BAUHAUS<span class="text-bauhausRed">DRAW</span></span>
+            </a>
+
+            <!-- Right Status & Room Controls -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Cloud Sync Indicator -->
+                <div id="sync-status-badge" class="flex items-center gap-1.5 px-2.5 py-1 bg-paper border-2 border-ink text-[10px] sm:text-xs font-mono font-bold uppercase">
+                    <span id="sync-dot" class="w-2 h-2 rounded-full bg-bauhausRed"></span>
+                    <span id="sync-text">OFFLINE / SANDBOX</span>
+                </div>
+
+                <!-- Active Room Controls -->
+                <div id="header-room-controls" class="flex items-center gap-2">
+                    <div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-paper border-2 border-ink text-xs font-mono font-bold uppercase">
+                        <span>ROOM:</span>
+                        <span id="header-room-code" class="text-cobalt font-extrabold">WW4DFA</span>
+                    </div>
+
+                    <!-- View Switcher (Host vs Participant) -->
+                    <div class="flex border-2 border-ink bg-paper p-0.5">
+                        <button id="switch-host-btn" class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-ink text-white">Host</button>
+                        <button id="switch-part-btn" class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-ink hover:bg-surface">Phone View</button>
+                    </div>
+
+                    <button id="mute-btn" title="Toggle Sound Effects" class="bauhaus-btn px-2.5 py-1 bg-surface border-2 border-ink shadow-hard-sm text-xs font-bold">🔊</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
+        <!-- Loading View -->
+        <div id="loading-view" class="flex flex-col items-center justify-center py-24 hidden">
+            <div class="w-12 h-12 border-4 border-ink border-t-bauhausRed rounded-full animate-spin mb-4"></div>
+            <p class="font-mono font-bold uppercase tracking-widest text-xs">Initializing Cloud Sync...</p>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- 1. LANDING VIEW                                                -->
+        <!-- ============================================================== -->
+        <section id="landing-view" class="max-w-4xl mx-auto hidden">
+            <div class="bg-surface border-2 border-ink shadow-hard-lg overflow-hidden">
+                <!-- Geometric Bauhaus Header Bar -->
+                <div class="grid grid-cols-12 border-b-2 border-ink h-5">
+                    <div class="col-span-6 bg-bauhausRed border-r-2 border-ink"></div>
+                    <div class="col-span-4 bg-cobalt border-r-2 border-ink"></div>
+                    <div class="col-span-2 bg-mustard"></div>
+                </div>
+
+                <div class="p-6 sm:p-10">
+                    <div class="mb-8">
+                        <span class="inline-block px-2.5 py-1 bg-mustard border-2 border-ink font-mono text-[11px] font-bold uppercase tracking-widest mb-3">
+                            Multi-Device Cloud Raffle
+                        </span>
+                        <h1 class="font-black text-3xl sm:text-5xl uppercase tracking-tight leading-none mb-3">
+                            Scan to Check In. Draw Live on Stage.
+                        </h1>
+                        <p class="text-neutral-700 font-medium text-sm sm:text-base max-w-2xl">
+                            Create a room on your laptop, display the QR code for guests to check in on their phones, and draw winners in real time.
+                        </p>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6 sm:gap-8">
+                        <!-- Host / Create Room -->
+                        <div class="bg-paper border-2 border-ink p-6 shadow-hard flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center gap-2 mb-4">
+                                    <span class="w-3.5 h-3.5 bg-bauhausRed border border-ink"></span>
+                                    <h2 class="font-black text-lg uppercase tracking-tight">Create Host Room</h2>
+                                </div>
+                                <form id="create-room-form" class="space-y-4">
+                                    <div>
+                                        <label class="block text-xs font-black uppercase tracking-wider mb-1.5" for="event-name-input">Event Name</label>
+                                        <input id="event-name-input" type="text" required="" maxlength="60" placeholder="e.g., QICI Workshop Raffle" class="w-full px-3.5 py-2.5 bg-surface border-2 border-ink font-semibold text-sm focus:outline-none focus:border-cobalt">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-black uppercase tracking-wider mb-1.5" for="custom-room-code-input">6-Char Room Code (Optional)</label>
+                                        <input id="custom-room-code-input" type="text" maxlength="6" placeholder="Auto-generated if blank" class="w-full px-3.5 py-2.5 bg-surface border-2 border-ink font-mono font-bold uppercase text-sm tracking-widest focus:outline-none focus:border-cobalt">
+                                    </div>
+                                    <button type="submit" class="bauhaus-btn w-full py-3.5 bg-bauhausRed text-white border-2 border-ink shadow-hard-sm font-black uppercase tracking-wider text-sm">
+                                        Launch Host Dashboard →
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Join Existing Room -->
+                        <div class="bg-surface border-2 border-ink p-6 shadow-hard flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center gap-2 mb-4">
+                                    <span class="w-3.5 h-3.5 rounded-full bg-cobalt border border-ink"></span>
+                                    <h2 class="font-black text-lg uppercase tracking-tight">Join Existing Room</h2>
+                                </div>
+                                <p class="text-xs font-medium text-neutral-600 mb-4 leading-relaxed">
+                                    Enter a 6-character room code to check in as a participant or reconnect to an existing host dashboard.
+                                </p>
+                                <form id="join-room-form" class="space-y-4">
+                                    <div>
+                                        <label class="block text-xs font-black uppercase tracking-wider mb-1.5" for="join-room-code-input">Room Code</label>
+                                        <input id="join-room-code-input" type="text" required="" maxlength="6" placeholder="e.g., HKU88A" class="w-full px-3.5 py-2.5 bg-paper border-2 border-ink font-mono font-extrabold uppercase text-base tracking-widest focus:outline-none focus:bg-white focus:border-cobalt">
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3 pt-2">
+                                        <button type="submit" data-mode="participant" class="bauhaus-btn py-3 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-black uppercase tracking-wider text-xs">
+                                            Join as Guest
+                                        </button>
+                                        <button type="submit" data-mode="host" class="bauhaus-btn py-3 bg-mustard text-ink border-2 border-ink shadow-hard-sm font-black uppercase tracking-wider text-xs">
+                                            Open as Host
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="mt-6 pt-3 border-t-2 border-dashed border-neutral-300 flex items-center justify-between text-[11px] font-mono font-bold text-neutral-500">
+                                <span>NEED A PUBLIC LINK?</span>
+                                <button type="button" id="landing-download-btn" class="underline text-cobalt hover:text-bauhausRed uppercase">Download HTML</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- 2. HOST DASHBOARD VIEW                                         -->
+        <!-- ============================================================== -->
+        <section id="host-view" class="space-y-6">
+            <!-- Top Event Banner -->
+            <div class="bg-surface border-2 border-ink shadow-hard p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                        <span class="px-2 py-0.5 bg-cobalt text-white font-mono text-[10px] font-bold uppercase tracking-widest">HOST DASHBOARD</span>
+                        <span class="px-2 py-0.5 bg-paper border border-ink font-mono text-xs font-extrabold">CODE: <span id="host-room-code-label" class="text-bauhausRed">WW4DFA</span></span>
+                    </div>
+                    <h1 id="host-event-title" class="font-black text-2xl sm:text-3xl uppercase tracking-tight">9077</h1>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="copy-join-link-btn" class="bauhaus-btn px-3.5 py-2 bg-mustard border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                        📋 Copy Join Link
+                    </button>
+                    <button id="open-big-qr-btn" class="bauhaus-btn px-3.5 py-2 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                        ⛶ Project Fullscreen QR
+                    </button>
+                    <button id="leave-room-btn" class="bauhaus-btn px-3 py-2 bg-surface border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider text-neutral-600 hover:text-ink">
+                        Switch Room
+                    </button>
+                </div>
+            </div>
+
+            <!-- 12-Column Swiss Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+                <!-- LEFT COLUMN (4 Cols): QR Check-In Card -->
+                <div class="lg:col-span-4 space-y-6">
+                    <div class="bg-surface border-2 border-ink shadow-hard p-5">
+                        <div class="flex items-center justify-between border-b-2 border-ink pb-3 mb-4">
+                            <h2 class="font-black uppercase text-sm tracking-wider flex items-center gap-2">
+                                <span class="w-3 h-3 bg-bauhausRed border border-ink inline-block"></span>
+                                QR Check-In
+                            </h2>
+                            <span class="font-mono text-[11px] font-bold bg-paper px-2 py-0.5 border border-ink" id="qr-room-badge">WW4DFA</span>
+                        </div>
+
+                        <div class="flex flex-col items-center text-center">
+                            <div class="p-3 bg-white border-2 border-ink shadow-hard-sm mb-4">
+                                <div id="qrcode" class="w-40 h-40 flex items-center justify-center" title="https://1206057047-atari-embeds.googleusercontent.com/embeds/928209f300890cc864ba5f6dbbfbf517/inner-frame-minified.html?room=WW4DFA&amp;mode=join"><canvas width="160" height="160" style="display: none;"></canvas><img src="data:image/png;base64,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" style="display: block;"></div>
+                            </div>
+
+                            <p class="text-xs font-semibold text-neutral-700 mb-3">
+                                Scan with any phone camera to join the live raffle pool.
+                            </p>
+
+                            <!-- Encoded URL Display -->
+                            <div class="w-full p-2 bg-paper border-2 border-ink text-left mb-3">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[10px] font-mono font-bold uppercase text-neutral-500">Target Join URL</span>
+                                    <button id="card-set-url-btn" class="text-[10px] font-mono font-bold uppercase text-cobalt underline hover:text-bauhausRed">
+                                        Set Public URL
+                                    </button>
+                                </div>
+                                <p id="encoded-url-text" class="font-mono text-[11px] text-ink break-all select-all leading-snug">https://1206057047-atari-embeds.googleusercontent.com/embeds/928209f300890cc864ba5f6dbbfbf517/inner-frame-minified.html?room=WW4DFA&amp;mode=join</p>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2 w-full">
+                                <button id="card-copy-link-btn" class="bauhaus-btn py-2 bg-paper border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                                    Copy Link
+                                </button>
+                                <button id="card-fullscreen-qr-btn" class="bauhaus-btn py-2 bg-ink text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                                    Fullscreen QR
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CENTER COLUMN (4 Cols): Random Draw Stage -->
+                <div class="lg:col-span-4 space-y-6">
+                    <div class="bg-surface border-2 border-ink shadow-hard-lg overflow-hidden">
+                        <!-- Primary Color Strip -->
+                        <div class="h-3.5 border-b-2 border-ink flex">
+                            <div class="w-1/3 bg-bauhausRed border-r-2 border-ink"></div>
+                            <div class="w-1/3 bg-cobalt border-r-2 border-ink"></div>
+                            <div class="w-1/3 bg-mustard"></div>
+                        </div>
+
+                        <div class="p-5 sm:p-6 text-center">
+                            <div class="flex items-center justify-between mb-4">
+                                <span class="px-2.5 py-1 bg-paper border-2 border-ink font-mono text-[11px] font-bold uppercase">
+                                    POOL: <span id="stage-pool-count" class="text-cobalt font-extrabold">0</span>
+                                </span>
+                                <span class="px-2.5 py-1 bg-paper border-2 border-ink font-mono text-[11px] font-bold uppercase">
+                                    WON: <span id="stage-won-count" class="text-bauhausRed font-extrabold">0</span>
+                                </span>
+                            </div>
+
+                            <!-- Slot Machine Display Box -->
+                            <div id="slot-stage-box" class="relative bg-paper border-2 border-ink p-6 sm:p-8 mb-5 min-h-[200px] flex flex-col items-center justify-center transition-colors">
+                                <span class="absolute top-1.5 left-1.5 w-2 h-2 bg-ink"></span>
+                                <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-ink"></span>
+                                <span class="absolute bottom-1.5 left-1.5 w-2 h-2 bg-ink"></span>
+                                <span class="absolute bottom-1.5 right-1.5 w-2 h-2 bg-ink"></span>
+
+                                <p id="slot-status-text" class="font-mono text-[11px] font-bold uppercase tracking-widest text-neutral-500 mb-2">READY TO DRAW</p>
+                                <div id="slot-winner-name" class="font-black text-2xl sm:text-4xl uppercase tracking-tight text-ink break-words max-w-full leading-tight">
+                                    ? ? ?
+                                </div>
+                                <p id="slot-winner-affiliation" class="hidden mt-2 font-mono text-xs font-bold text-cobalt uppercase"></p>
+                            </div>
+
+                            <!-- Post-Draw Winner Actions -->
+                            <div id="post-draw-actions" class="hidden mb-5 p-3.5 bg-mustard/25 border-2 border-ink space-y-2.5">
+                                <p class="font-mono text-[11px] font-bold uppercase tracking-wider text-ink">Confirm Result:</p>
+                                <div class="grid grid-cols-1 gap-2">
+                                    <button id="confirm-winner-btn" class="bauhaus-btn w-full py-2.5 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                                        ✓ Confirm Winner &amp; Remove from Pool
+                                    </button>
+                                    <button id="return-to-pool-btn" class="bauhaus-btn w-full py-2 bg-surface text-ink border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider">
+                                        ↺ Return to Pool
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Draw Trigger -->
+                            <button id="draw-winner-btn" class="bauhaus-btn w-full py-4 bg-bauhausRed text-white border-2 border-ink shadow-hard font-black text-lg uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed" disabled="">
+                                DRAW WINNER
+                            </button>
+                            <p class="mt-2.5 font-mono text-[10px] font-bold uppercase text-neutral-500">
+                                Shortcut: Press <kbd class="px-1.5 py-0.5 bg-paper border border-ink text-ink">SPACE</kbd>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT COLUMN (4 Cols): Live Roster & Drawn Winners Tabs -->
+                <div class="lg:col-span-4">
+                    <div class="bg-surface border-2 border-ink shadow-hard flex flex-col h-[560px]">
+                        <!-- Tab Header -->
+                        <div class="grid grid-cols-2 border-b-2 border-ink">
+                            <button id="tab-roster-btn" class="py-3 px-3 font-black text-xs uppercase tracking-wider bg-ink text-white border-r-2 border-ink flex items-center justify-center gap-2">
+                                <span>Eligible Roster</span>
+                                <span id="tab-roster-count" class="px-1.5 py-0.5 bg-mustard text-ink font-mono text-[11px] font-extrabold">0</span>
+                            </button>
+                            <button id="tab-winners-btn" class="py-3 px-3 font-black text-xs uppercase tracking-wider bg-paper text-ink hover:bg-white flex items-center justify-center gap-2">
+                                <span>Drawn Winners</span>
+                                <span id="tab-winners-count" class="px-1.5 py-0.5 bg-bauhausRed text-white font-mono text-[11px] font-extrabold">0</span>
+                            </button>
+                        </div>
+
+                        <!-- TAB 1: ELIGIBLE ROSTER -->
+                        <div id="panel-roster" class="flex-1 flex flex-col min-h-0">
+                            <!-- Search & Export Bar -->
+                            <div class="p-3 border-b-2 border-ink bg-paper flex gap-2">
+                                <input id="roster-search-input" type="text" placeholder="Search participants..." class="flex-1 px-2.5 py-1.5 bg-surface border-2 border-ink text-xs font-semibold focus:outline-none focus:border-cobalt">
+                                <button id="export-csv-btn" title="Export All to CSV" class="bauhaus-btn px-2.5 py-1.5 bg-surface border-2 border-ink shadow-hard-sm font-mono font-bold text-[11px] uppercase hover:bg-mustard">
+                                    CSV
+                                </button>
+                            </div>
+
+                            <!-- Manual Add Input -->
+                            <form id="manual-add-form" class="p-3 border-b-2 border-ink bg-surface flex gap-2">
+                                <input id="manual-name-input" type="text" required="" maxlength="60" placeholder="Add attendee manually..." class="flex-1 px-2.5 py-1.5 bg-paper border-2 border-ink text-xs font-semibold focus:outline-none focus:bg-white focus:border-cobalt">
+                                <button type="submit" class="bauhaus-btn px-3 py-1.5 bg-cobalt text-white border-2 border-ink shadow-hard-sm font-bold text-xs uppercase">
+                                    + Add
+                                </button>
+                            </form>
+
+                            <!-- Scrollable List -->
+                            <div id="roster-list" class="flex-1 overflow-y-auto divide-y-2 divide-neutral-200 p-2">
+                    <div class="py-12 text-center font-mono text-xs font-bold uppercase text-neutral-400">
+                        Waiting for check-ins...
+                    </div></div>
+                        </div>
+
+                        <!-- TAB 2: DRAWN WINNERS -->
+                        <div id="panel-winners" class="hidden flex-1 flex flex-col min-h-0">
+                            <div class="p-3 border-b-2 border-ink bg-paper flex items-center justify-between">
+                                <span class="font-mono text-[11px] font-bold uppercase text-neutral-600">Confirmed Winners Log</span>
+                                <button id="restore-all-btn" class="hidden px-2 py-1 bg-surface border border-ink font-mono text-[10px] font-bold uppercase hover:bg-ink hover:text-white">
+                                    Restore All
+                                </button>
+                            </div>
+                            <div id="winners-list" class="flex-1 overflow-y-auto divide-y-2 divide-neutral-200 p-2">
+                    <div class="py-12 text-center font-mono text-xs font-bold uppercase text-neutral-400">
+                        No winners confirmed yet
+                    </div></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- 3. PARTICIPANT MOBILE VIEW                                     -->
+        <!-- ============================================================== -->
+        <section id="participant-view" class="hidden max-w-md mx-auto">
+            <div class="bg-surface border-2 border-ink shadow-hard-lg overflow-hidden">
+                <!-- Geometric Header Strip -->
+                <div class="grid grid-cols-3 border-b-2 border-ink h-4">
+                    <div class="bg-cobalt border-r-2 border-ink"></div>
+                    <div class="bg-mustard border-r-2 border-ink"></div>
+                    <div class="bg-bauhausRed"></div>
+                </div>
+
+                <div class="p-6 sm:p-8">
+                    <!-- Room Header -->
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="px-2 py-0.5 bg-ink text-white font-mono text-[10px] font-bold uppercase tracking-widest">GUEST CHECK-IN</span>
+                        <span class="font-mono text-xs font-extrabold text-cobalt">ROOM: <span id="part-room-code-label">WW4DFA</span></span>
+                    </div>
+
+                    <h1 id="part-event-title" class="font-black text-2xl sm:text-3xl uppercase tracking-tight leading-tight mb-3">9077</h1>
+
+                    <!-- Live Checked-In Pill -->
+                    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-paper border-2 border-ink mb-6">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span class="font-mono text-xs font-bold uppercase">
+                            <span id="part-total-count" class="text-cobalt font-extrabold">0</span> Checked In
+                        </span>
+                    </div>
+
+                    <!-- Live Stage Winner Announcement Banner (visible when host draws a winner) -->
+                    <div id="part-live-winner-banner" class="hidden mb-6 p-4 bg-mustard border-2 border-ink shadow-hard-sm">
+                        <p class="font-mono text-[10px] font-extrabold uppercase tracking-widest text-ink mb-1">★ LIVE STAGE ANNOUNCEMENT ★</p>
+                        <p class="text-xs font-bold text-ink">Latest Winner Drawn:</p>
+                        <p id="part-live-winner-name" class="font-black text-xl uppercase text-bauhausRed mt-0.5 break-words"></p>
+                    </div>
+
+                    <!-- Check-In Form -->
+                    <form id="part-checkin-form" class="space-y-4">
+                        <div>
+                            <label for="part-name-input" class="block text-xs font-black uppercase tracking-wider mb-1.5">
+                                Your Full Name <span class="text-bauhausRed">*</span>
+                            </label>
+                            <input id="part-name-input" type="text" required="" maxlength="60" placeholder="Enter your name" class="w-full px-3.5 py-3 bg-paper border-2 border-ink font-bold text-base focus:outline-none focus:bg-white focus:border-cobalt">
+                        </div>
+
+                        <div>
+                            <label for="part-affiliation-input" class="block text-xs font-black uppercase tracking-wider mb-1.5">
+                                Affiliation / Email <span class="text-neutral-400 font-semibold">(Optional)</span>
+                            </label>
+                            <input id="part-affiliation-input" type="text" maxlength="80" placeholder="e.g., HKU CS / alex@example.com" class="w-full px-3.5 py-2.5 bg-paper border-2 border-ink font-semibold text-sm focus:outline-none focus:bg-white focus:border-cobalt">
+                        </div>
+
+                        <button type="submit" id="part-submit-btn" class="bauhaus-btn w-full py-3.5 bg-bauhausRed text-white border-2 border-ink shadow-hard font-black text-base uppercase tracking-wider">
+                            Submit &amp; Join Raffle
+                        </button>
+                    </form>
+
+                    <!-- Check-In Confirmation Card -->
+                    <div id="part-confirmed-card" class="hidden space-y-4">
+                        <div class="p-5 bg-paper border-2 border-ink shadow-hard-sm">
+                            <div class="flex items-center gap-2 text-cobalt font-mono font-extrabold text-xs uppercase tracking-wider mb-2">
+                                <span class="w-5 h-5 bg-cobalt text-white flex items-center justify-center">✓</span>
+                                <span>Check-In Confirmed</span>
+                            </div>
+                            <p class="font-mono text-[10px] font-bold uppercase text-neutral-500">Registered Name</p>
+                            <p id="part-confirmed-name" class="font-black text-2xl uppercase text-ink break-words mt-0.5"></p>
+                            <p id="part-confirmed-affiliation" class="font-mono text-xs font-bold text-neutral-600 mt-1"></p>
+
+                            <div id="part-you-won-badge" class="hidden mt-4 p-3 bg-bauhausRed text-white border-2 border-ink font-black uppercase text-xs tracking-wider text-center">
+                                🎉 CONGRATULATIONS! YOU WERE DRAWN! 🎉
+                            </div>
+                        </div>
+
+                        <button id="register-another-btn" class="bauhaus-btn w-full py-2.5 bg-surface border-2 border-ink shadow-hard-sm font-bold text-xs uppercase tracking-wider hover:bg-mustard">
+                            + Register Another Person
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t-2 border-ink bg-surface py-3.5 px-6 mt-auto">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 font-mono text-[11px] font-bold uppercase text-neutral-600">
+            <span>BAUHAUS DRAW // REAL-TIME CLOUD EVENT RAFFLE</span>
+            <span>FORM FOLLOWS FUNCTION</span>
+        </div>
+    </footer>
+
+    <!-- Firebase v10 Modular SDK & Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import {
+            getFirestore,
+            doc,
+            setDoc,
+            getDoc,
+            addDoc,
+            updateDoc,
+            deleteDoc,
+            onSnapshot,
+            collection
+        } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        // ------------------------------------------------------------------
+        // 1. ENVIRONMENT & FIREBASE INITIALIZATION
+        // ------------------------------------------------------------------
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'bauhaus-draw-v2';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        let app = null;
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+        let isCloudConnected = false;
+
+        // In-memory fallback if opened completely offline without Firebase credentials
+        const localFallbackStore = {
+            rooms: {}
+        };
+
+        const state = {
+            roomCode: null,
+            mode: 'host', // 'host' | 'participant'
+            eventName: 'Live Event Raffle',
+            activeWinner: null, // { id, name, affiliation }
+            isDrawing: false,
+            participants: [], // { id, name, affiliation, joinedAt, won }
+            searchQuery: '',
+            activeTab: 'roster', // 'roster' | 'winners'
+            isSpinning: false,
+            pendingWinner: null,
+            muted: false,
+            customBaseUrl: localStorage.getItem('bauhaus_draw_public_url') || '',
+            unsubRoom: null,
+            unsubParticipants: null
+        };
+
+        // ------------------------------------------------------------------
+        // 2. WEB AUDIO SYNTHESIZER (Ticks & Win Fanfare)
+        // ------------------------------------------------------------------
+        const SoundFX = {
+            ctx: null,
+            ensureContext() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            },
+            tick(pitch = 1) {
+                if (state.muted) return;
+                try {
+                    this.ensureContext();
+                    if (!this.ctx) return;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(300 * pitch, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.045);
+                    gain.gain.setValueAtTime(0.16, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.05);
+                } catch (e) { /* ignore */ }
+            },
+            fanfare() {
+                if (state.muted) return;
+                try {
+                    this.ensureContext();
+                    if (!this.ctx) return;
+                    const chord = [523.25, 659.25, 783.99, 1046.50];
+                    chord.forEach((freq, i) => {
+                        const osc = this.ctx.createOscillator();
+                        const gain = this.ctx.createGain();
+                        const t = this.ctx.currentTime + i * 0.085;
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(freq, t);
+                        gain.gain.setValueAtTime(0.13, t);
+                        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                        osc.connect(gain);
+                        gain.connect(this.ctx.destination);
+                        osc.start(t);
+                        osc.stop(t + 0.38);
+                    });
+                } catch (e) { /* ignore */ }
+            }
+        };
+
+        // ------------------------------------------------------------------
+        // 3. UI UTILITIES (Toasts, Confirm Dialog, Sandbox & Download)
+        // ------------------------------------------------------------------
+        function showToast(msg, variant = 'info') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            const colors = variant === 'error' ? 'bg-bauhausRed text-white' :
+                           variant === 'success' ? 'bg-cobalt text-white' :
+                           'bg-mustard text-ink';
+            el.className = `pointer-events-auto px-4 py-2.5 border-2 border-ink shadow-hard-sm font-mono font-bold text-xs uppercase tracking-wider ${colors}`;
+            el.textContent = msg;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.2s ease';
+                setTimeout(() => el.remove(), 220);
+            }, 3000);
+        }
+
+        function askConfirm(title, message) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('confirm-modal');
+                document.getElementById('confirm-title').textContent = title;
+                document.getElementById('confirm-message').textContent = message;
+                modal.classList.remove('hidden');
+
+                const okBtn = document.getElementById('confirm-ok-btn');
+                const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+                const cleanup = (val) => {
+                    modal.classList.add('hidden');
+                    okBtn.removeEventListener('click', onOk);
+                    cancelBtn.removeEventListener('click', onCancel);
+                    resolve(val);
+                };
+                const onOk = () => cleanup(true);
+                const onCancel = () => cleanup(false);
+
+                okBtn.addEventListener('click', onOk);
+                cancelBtn.addEventListener('click', onCancel);
+            });
+        }
+
+        function updateSyncStatusBadge(online) {
+            isCloudConnected = online;
+            const dot = document.getElementById('sync-dot');
+            const text = document.getElementById('sync-text');
+            if (online) {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+                text.textContent = 'LIVE CLOUD SYNC';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-bauhausRed';
+                text.textContent = 'OFFLINE / SANDBOX';
+            }
+        }
+
+        function isSandboxEnvironment() {
+            const host = window.location.hostname || '';
+            const proto = window.location.protocol || '';
+            return host.includes('googleusercontent.com') || proto === 'blob:' || proto === 'file:';
+        }
+
+        function checkSandboxBanner() {
+            if (isSandboxEnvironment()) {
+                document.getElementById('sandbox-banner').classList.remove('hidden');
+            }
+        }
+
+        function downloadStandaloneHtml() {
+            try {
+                const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+                const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'bauhaus-draw-raffle.html';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('Downloaded bauhaus-draw-raffle.html', 'success');
+            } catch (err) {
+                console.error('Download failed:', err);
+                showToast('Could not trigger download', 'error');
+            }
+        }
+
+        function generateRoomCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let code = '';
+            for (let i = 0; i < 6; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return code;
+        }
+
+        function getBaseUrlForQr() {
+            if (state.customBaseUrl && state.customBaseUrl.trim()) {
+                return state.customBaseUrl.trim().replace(/\/+$/, '');
+            }
+            const url = new URL(window.location.href);
+            url.search = '';
+            url.hash = '';
+            return url.toString();
+        }
+
+        function buildJoinUrl(roomCode) {
+            const base = getBaseUrlForQr();
+            const separator = base.includes('?') ? '&' : '?';
+            return `${base}${separator}room=${encodeURIComponent(roomCode)}&mode=join`;
+        }
+
+        function updateBrowserQuery(roomCode, mode) {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('room', roomCode);
+                if (mode === 'participant') {
+                    url.searchParams.set('mode', 'join');
+                } else {
+                    url.searchParams.delete('mode');
+                }
+                window.history.replaceState({}, '', url.toString());
+            } catch (e) { /* ignore in restricted sandboxes */ }
+        }
+
+        // ------------------------------------------------------------------
+        // 4. FIRESTORE CLOUD DATA LAYER (Strict Path & Query Compliance)
+        // ------------------------------------------------------------------
+        // Public data path: /artifacts/{appId}/public/data/{collectionName}
+        function getRoomDocRef(roomCode) {
+            return doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode);
+        }
+
+        function getRoomParticipantsColRef(roomCode) {
+            return collection(db, 'artifacts', appId, 'public', 'data', `rooms_${roomCode}_participants`);
+        }
+
+        function getParticipantDocRef(roomCode, participantId) {
+            return doc(db, 'artifacts', appId, 'public', 'data', `rooms_${roomCode}_participants`, participantId);
+        }
+
+        async function enterRoom(rawCode, eventNameInput, targetMode) {
+            const roomCode = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+            if (!roomCode) return;
+
+            state.roomCode = roomCode;
+            state.mode = targetMode;
+            updateBrowserQuery(roomCode, targetMode);
+
+            if (!isCloudConnected || !db || !currentUser) {
+                // Offline / Sandbox Fallback
+                if (!localFallbackStore.rooms[roomCode]) {
+                    localFallbackStore.rooms[roomCode] = {
+                        eventName: eventNameInput || `Event ${roomCode}`,
+                        createdAt: Date.now(),
+                        activeWinner: null,
+                        isDrawing: false,
+                        participants: []
+                    };
+                } else if (eventNameInput && targetMode === 'host') {
+                    localFallbackStore.rooms[roomCode].eventName = eventNameInput;
+                }
+                const roomData = localFallbackStore.rooms[roomCode];
+                state.eventName = roomData.eventName;
+                state.activeWinner = roomData.activeWinner;
+                state.participants = [...roomData.participants];
+                renderRoomUI();
+                return;
+            }
+
+            try {
+                const roomRef = getRoomDocRef(roomCode);
+                const snap = await getDoc(roomRef);
+
+                if (!snap.exists()) {
+                    const finalName = eventNameInput || `Event ${roomCode}`;
+                    await setDoc(roomRef, {
+                        eventName: finalName,
+                        createdAt: Date.now(),
+                        activeWinner: null,
+                        isDrawing: false
+                    });
+                    state.eventName = finalName;
+                } else {
+                    const data = snap.data();
+                    if (eventNameInput && targetMode === 'host') {
+                        await updateDoc(roomRef, { eventName: eventNameInput });
+                        state.eventName = eventNameInput;
+                    } else {
+                        state.eventName = data.eventName || `Event ${roomCode}`;
+                    }
+                    state.activeWinner = data.activeWinner || null;
+                }
+
+                attachRoomListeners(roomCode);
+                renderRoomUI();
+            } catch (err) {
+                console.error('Error entering room:', err);
+                showToast('Cloud sync error while opening room', 'error');
+            }
+        }
+
+        function attachRoomListeners(roomCode) {
+            if (state.unsubRoom) state.unsubRoom();
+            if (state.unsubParticipants) state.unsubParticipants();
+            if (!isCloudConnected || !db || !currentUser) return;
+
+            // 1. Room Metadata Listener
+            state.unsubRoom = onSnapshot(
+                getRoomDocRef(roomCode),
+                (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        state.eventName = data.eventName || `Event ${roomCode}`;
+                        state.activeWinner = data.activeWinner || null;
+                        state.isDrawing = Boolean(data.isDrawing);
+                        syncTitlesAndWinnerBanner();
+                    }
+                },
+                (err) => {
+                    console.error('Room listener error:', err);
+                    updateSyncStatusBadge(false);
+                }
+            );
+
+            // 2. Real-Time Participants Subcollection Listener (No compound queries per Rule 2)
+            state.unsubParticipants = onSnapshot(
+                getRoomParticipantsColRef(roomCode),
+                (querySnap) => {
+                    const items = [];
+                    querySnap.forEach((d) => {
+                        items.push({ id: d.id, ...d.data() });
+                    });
+                    items.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+                    state.participants = items;
+                    renderListsAndCounts();
+                    updateParticipantCheckInCard();
+                },
+                (err) => {
+                    console.error('Participants listener error:', err);
+                    showToast('Real-time roster sync interrupted', 'error');
+                }
+            );
+        }
+
+        async function createParticipant(name, affiliation = '') {
+            const cleanName = name.trim();
+            const cleanAff = affiliation.trim();
+            if (!cleanName) return null;
+
+            if (!isCloudConnected || !db || !currentUser) {
+                const newObj = {
+                    id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                    name: cleanName,
+                    affiliation: cleanAff,
+                    joinedAt: Date.now(),
+                    won: false
+                };
+                localFallbackStore.rooms[state.roomCode].participants.push(newObj);
+                state.participants = [...localFallbackStore.rooms[state.roomCode].participants];
+                renderListsAndCounts();
+                return newObj.id;
+            }
+
+            const docRef = await addDoc(getRoomParticipantsColRef(state.roomCode), {
+                name: cleanName,
+                affiliation: cleanAff,
+                joinedAt: Date.now(),
+                won: false
+            });
+            return docRef.id;
+        }
+
+        async function updateParticipant(participantId, patch) {
+            if (!isCloudConnected || !db || !currentUser) {
+                const list = localFallbackStore.rooms[state.roomCode].participants;
+                const idx = list.findIndex(p => p.id === participantId);
+                if (idx !== -1) {
+                    list[idx] = { ...list[idx], ...patch };
+                    state.participants = [...list];
+                    renderListsAndCounts();
+                }
+                return;
+            }
+            await updateDoc(getParticipantDocRef(state.roomCode, participantId), patch);
+        }
+
+        async function removeParticipant(participantId) {
+            if (!isCloudConnected || !db || !currentUser) {
+                const room = localFallbackStore.rooms[state.roomCode];
+                room.participants = room.participants.filter(p => p.id !== participantId);
+                state.participants = [...room.participants];
+                renderListsAndCounts();
+                return;
+            }
+            await deleteDoc(getParticipantDocRef(state.roomCode, participantId));
+        }
+
+        async function updateRoomMeta(patch) {
+            if (!isCloudConnected || !db || !currentUser) {
+                Object.assign(localFallbackStore.rooms[state.roomCode], patch);
+                if ('activeWinner' in patch) state.activeWinner = patch.activeWinner;
+                syncTitlesAndWinnerBanner();
+                return;
+            }
+            await updateDoc(getRoomDocRef(state.roomCode), patch);
+        }
+
+        // ------------------------------------------------------------------
+        // 5. RENDERING & QR GENERATION
+        // ------------------------------------------------------------------
+        function setActiveView(view) {
+            document.getElementById('loading-view').classList.add('hidden');
+            document.getElementById('landing-view').classList.add('hidden');
+            document.getElementById('host-view').classList.add('hidden');
+            document.getElementById('participant-view').classList.add('hidden');
+
+            const roomControls = document.getElementById('header-room-controls');
+            if (view === 'landing') {
+                roomControls.classList.add('hidden');
+                document.getElementById('landing-view').classList.remove('hidden');
+                return;
+            }
+
+            roomControls.classList.remove('hidden');
+            document.getElementById('header-room-code').textContent = state.roomCode;
+
+            const hostBtn = document.getElementById('switch-host-btn');
+            const partBtn = document.getElementById('switch-part-btn');
+
+            if (view === 'host') {
+                document.getElementById('host-view').classList.remove('hidden');
+                hostBtn.className = 'px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-ink text-white';
+                partBtn.className = 'px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-ink hover:bg-surface';
+            } else {
+                document.getElementById('participant-view').classList.remove('hidden');
+                partBtn.className = 'px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-ink text-white';
+                hostBtn.className = 'px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-ink hover:bg-surface';
+            }
+        }
+
+        function regenerateQrCodes() {
+            if (!state.roomCode) return;
+            const joinUrl = buildJoinUrl(state.roomCode);
+            document.getElementById('encoded-url-text').textContent = joinUrl;
+            document.getElementById('big-qr-room-code').textContent = state.roomCode;
+
+            const smallBox = document.getElementById('qrcode');
+            const bigBox = document.getElementById('big-qrcode');
+            smallBox.innerHTML = '';
+            bigBox.innerHTML = '';
+
+            if (typeof QRCode !== 'undefined') {
+                new QRCode(smallBox, {
+                    text: joinUrl,
+                    width: 160,
+                    height: 160,
+                    colorDark: '#121212',
+                    colorLight: '#FFFFFF',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+                new QRCode(bigBox, {
+                    text: joinUrl,
+                    width: 272,
+                    height: 272,
+                    colorDark: '#121212',
+                    colorLight: '#FFFFFF',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+        }
+
+        function syncTitlesAndWinnerBanner() {
+            document.getElementById('host-event-title').textContent = state.eventName;
+            document.getElementById('part-event-title').textContent = state.eventName;
+            document.getElementById('big-qr-event-title').textContent = state.eventName;
+
+            const liveBanner = document.getElementById('part-live-winner-banner');
+            const liveName = document.getElementById('part-live-winner-name');
+            if (state.activeWinner && state.activeWinner.name) {
+                liveName.textContent = state.activeWinner.name;
+                liveBanner.classList.remove('hidden');
+            } else {
+                liveBanner.classList.add('hidden');
+            }
+        }
+
+        function renderRoomUI() {
+            document.getElementById('host-room-code-label').textContent = state.roomCode;
+            document.getElementById('qr-room-badge').textContent = state.roomCode;
+            document.getElementById('part-room-code-label').textContent = state.roomCode;
+
+            syncTitlesAndWinnerBanner();
+            regenerateQrCodes();
+            renderListsAndCounts();
+            updateParticipantCheckInCard();
+            setActiveView(state.mode);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderListsAndCounts() {
+            const eligible = state.participants.filter(p => !p.won);
+            const winners = state.participants
+                .filter(p => p.won)
+                .sort((a, b) => (b.wonAt || 0) - (a.wonAt || 0));
+
+            // Update Counts
+            document.getElementById('stage-pool-count').textContent = eligible.length;
+            document.getElementById('stage-won-count').textContent = winners.length;
+            document.getElementById('tab-roster-count').textContent = eligible.length;
+            document.getElementById('tab-winners-count').textContent = winners.length;
+            document.getElementById('part-total-count').textContent = state.participants.length;
+            document.getElementById('big-qr-live-count').textContent = state.participants.length;
+
+            // Update Draw Button State
+            document.getElementById('draw-winner-btn').disabled = eligible.length === 0 || state.isSpinning;
+
+            // Filter Eligible Roster
+            const query = state.searchQuery.toLowerCase().trim();
+            const filteredEligible = query
+                ? eligible.filter(p =>
+                    (p.name || '').toLowerCase().includes(query) ||
+                    (p.affiliation || '').toLowerCase().includes(query)
+                )
+                : eligible;
+
+            const rosterEl = document.getElementById('roster-list');
+            if (filteredEligible.length === 0) {
+                rosterEl.innerHTML = `
+                    <div class="py-12 text-center font-mono text-xs font-bold uppercase text-neutral-400">
+                        ${query ? 'No matching participants' : 'Waiting for check-ins...'}
+                    </div>`;
+            } else {
+                rosterEl.innerHTML = filteredEligible.map((p, idx) => `
+                    <div class="flex items-center justify-between px-3 py-2.5 hover:bg-paper group transition-colors">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-5 h-5 bg-ink text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0">${idx + 1}</span>
+                            <div class="truncate">
+                                <p class="font-bold text-sm text-ink truncate">${escapeHtml(p.name)}</p>
+                                ${p.affiliation ? `<p class="font-mono text-[11px] text-neutral-500 truncate">${escapeHtml(p.affiliation)}</p>` : ''}
+                            </div>
+                        </div>
+                        <button data-del-id="${p.id}" title="Delete Entry" class="del-entry-btn opacity-70 group-hover:opacity-100 px-2 py-0.5 font-mono text-xs font-bold text-bauhausRed hover:bg-bauhausRed hover:text-white border border-transparent hover:border-ink">
+                            ✕
+                        </button>
+                    </div>
+                `).join('');
+
+                rosterEl.querySelectorAll('.del-entry-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-del-id');
+                        await removeParticipant(id);
+                        showToast('Participant removed');
+                    });
+                });
+            }
+
+            // Render Confirmed Winners
+            const winnersEl = document.getElementById('winners-list');
+            const restoreAllBtn = document.getElementById('restore-all-btn');
+            if (winners.length === 0) {
+                restoreAllBtn.classList.add('hidden');
+                winnersEl.innerHTML = `
+                    <div class="py-12 text-center font-mono text-xs font-bold uppercase text-neutral-400">
+                        No winners confirmed yet
+                    </div>`;
+            } else {
+                restoreAllBtn.classList.remove('hidden');
+                winnersEl.innerHTML = winners.map((w, idx) => `
+                    <div class="flex items-center justify-between px-3 py-2.5 bg-white">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="px-1.5 py-0.5 bg-bauhausRed text-white font-mono text-[11px] font-extrabold">#${winners.length - idx}</span>
+                            <div class="truncate">
+                                <p class="font-black text-sm uppercase text-ink truncate">${escapeHtml(w.name)}</p>
+                                ${w.affiliation ? `<p class="font-mono text-[11px] text-neutral-500 truncate">${escapeHtml(w.affiliation)}</p>` : ''}
+                            </div>
+                        </div>
+                        <button data-restore-id="${w.id}" class="restore-entry-btn px-2 py-1 bg-paper border border-ink font-mono text-[10px] font-bold uppercase hover:bg-cobalt hover:text-white">
+                            Return
+                        </button>
+                    </div>
+                `).join('');
+
+                winnersEl.querySelectorAll('.restore-entry-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-restore-id');
+                        await updateParticipant(id, { won: false, wonAt: null });
+                        showToast('Returned winner to pool');
+                    });
+                });
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 6. PARTICIPANT CHECK-IN PERSISTENCE (Per Room in localStorage)
+        // ------------------------------------------------------------------
+        function getCheckInStorageKey() {
+            return `bauhaus_draw_checkin_${state.roomCode}`;
+        }
+
+        function getSavedCheckIn() {
+            try {
+                const raw = localStorage.getItem(getCheckInStorageKey());
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function setSavedCheckIn(payload) {
+            try {
+                localStorage.setItem(getCheckInStorageKey(), JSON.stringify(payload));
+            } catch (e) { /* ignore */ }
+        }
+
+        function clearSavedCheckIn() {
+            try {
+                localStorage.removeItem(getCheckInStorageKey());
+            } catch (e) { /* ignore */ }
+        }
+
+        function updateParticipantCheckInCard() {
+            const saved = getSavedCheckIn();
+            const formEl = document.getElementById('part-checkin-form');
+            const cardEl = document.getElementById('part-confirmed-card');
+            const wonBadge = document.getElementById('part-you-won-badge');
+
+            if (!saved || !saved.id) {
+                formEl.classList.remove('hidden');
+                cardEl.classList.add('hidden');
+                return;
+            }
+
+            const liveItem = state.participants.find(p => p.id === saved.id);
+            const record = liveItem || saved;
+
+            document.getElementById('part-confirmed-name').textContent = record.name;
+            document.getElementById('part-confirmed-affiliation').textContent = record.affiliation || '';
+
+            const isWinner = (liveItem && liveItem.won) ||
+                (state.activeWinner && state.activeWinner.id === saved.id);
+            if (isWinner) {
+                wonBadge.classList.remove('hidden');
+            } else {
+                wonBadge.classList.add('hidden');
+            }
+
+            formEl.classList.add('hidden');
+            cardEl.classList.remove('hidden');
+        }
+
+        // ------------------------------------------------------------------
+        // 7. RANDOM DRAW ENGINE
+        // ------------------------------------------------------------------
+        async function startRandomDraw() {
+            const eligible = state.participants.filter(p => !p.won);
+            if (eligible.length === 0 || state.isSpinning) {
+                if (eligible.length === 0) showToast('No eligible participants in pool', 'error');
+                return;
+            }
+
+            state.isSpinning = true;
+            state.pendingWinner = null;
+
+            const drawBtn = document.getElementById('draw-winner-btn');
+            const stageBox = document.getElementById('slot-stage-box');
+            const statusText = document.getElementById('slot-status-text');
+            const winnerNameEl = document.getElementById('slot-winner-name');
+            const winnerAffEl = document.getElementById('slot-winner-affiliation');
+            const postActions = document.getElementById('post-draw-actions');
+
+            drawBtn.disabled = true;
+            postActions.classList.add('hidden');
+            winnerAffEl.classList.add('hidden');
+            stageBox.classList.remove('bg-mustard');
+            stageBox.classList.add('bg-paper', 'slot-spinning');
+            statusText.textContent = 'DRAWING IN PROGRESS...';
+            statusText.className = 'font-mono text-[11px] font-extrabold uppercase tracking-widest text-bauhausRed mb-2';
+
+            await updateRoomMeta({ isDrawing: true });
+
+            // Unbiased cryptographic random selection
+            const rng = new Uint32Array(1);
+            window.crypto.getRandomValues(rng);
+            const chosen = eligible[rng[0] % eligible.length];
+
+            const totalSteps = eligible.length === 1 ? 8 : 26;
+            let step = 0;
+            let lastIdx = -1;
+
+            function stepAnimation() {
+                step++;
+                const t = step / totalSteps;
+
+                if (step < totalSteps) {
+                    let idx = Math.floor(Math.random() * eligible.length);
+                    if (eligible.length > 1 && idx === lastIdx) {
+                        idx = (idx + 1) % eligible.length;
+                    }
+                    lastIdx = idx;
+                    winnerNameEl.textContent = eligible[idx].name;
+                    SoundFX.tick(0.85 + t * 0.45);
+
+                    const delay = 45 + Math.pow(t, 3) * 310;
+                    setTimeout(stepAnimation, delay);
+                } else {
+                    // Reveal Winner
+                    state.isSpinning = false;
+                    state.pendingWinner = chosen;
+
+                    stageBox.classList.remove('bg-paper', 'slot-spinning');
+                    stageBox.classList.add('bg-mustard');
+                    statusText.textContent = '★ WINNER SELECTED ★';
+                    statusText.className = 'font-mono text-[11px] font-extrabold uppercase tracking-widest text-ink mb-2';
+                    winnerNameEl.textContent = chosen.name;
+
+                    if (chosen.affiliation) {
+                        winnerAffEl.textContent = chosen.affiliation;
+                        winnerAffEl.classList.remove('hidden');
+                    }
+
+                    postActions.classList.remove('hidden');
+                    drawBtn.disabled = false;
+                    SoundFX.fanfare();
+
+                    updateRoomMeta({
+                        isDrawing: false,
+                        activeWinner: {
+                            id: chosen.id,
+                            name: chosen.name,
+                            affiliation: chosen.affiliation || ''
+                        }
+                    });
+                }
+            }
+
+            stepAnimation();
+        }
+
+        // ------------------------------------------------------------------
+        // 8. EVENT BINDINGS
+        // ------------------------------------------------------------------
+        function bindEvents() {
+            // Sandbox Banner & Download HTML Actions
+            document.getElementById('dismiss-sandbox-btn').addEventListener('click', () => {
+                document.getElementById('sandbox-banner').classList.add('hidden');
+            });
+            document.getElementById('banner-download-btn').addEventListener('click', downloadStandaloneHtml);
+            document.getElementById('landing-download-btn').addEventListener('click', downloadStandaloneHtml);
+            document.getElementById('download-html-modal-btn').addEventListener('click', downloadStandaloneHtml);
+
+            // Public URL Modal Controls
+            const openUrlModal = () => {
+                document.getElementById('custom-base-url-input').value = state.customBaseUrl;
+                document.getElementById('public-url-modal').classList.remove('hidden');
+            };
+            document.getElementById('banner-set-url-btn').addEventListener('click', openUrlModal);
+            document.getElementById('card-set-url-btn').addEventListener('click', openUrlModal);
+            document.getElementById('close-url-modal-btn').addEventListener('click', () => {
+                document.getElementById('public-url-modal').classList.add('hidden');
+            });
+            document.getElementById('public-url-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const val = document.getElementById('custom-base-url-input').value.trim();
+                state.customBaseUrl = val;
+                if (val) {
+                    localStorage.setItem('bauhaus_draw_public_url', val);
+                } else {
+                    localStorage.removeItem('bauhaus_draw_public_url');
+                }
+                regenerateQrCodes();
+                document.getElementById('public-url-modal').classList.add('hidden');
+                showToast('QR Code updated with public URL!', 'success');
+            });
+            document.getElementById('reset-base-url-btn').addEventListener('click', () => {
+                state.customBaseUrl = '';
+                localStorage.removeItem('bauhaus_draw_public_url');
+                document.getElementById('custom-base-url-input').value = '';
+                regenerateQrCodes();
+                document.getElementById('public-url-modal').classList.add('hidden');
+                showToast('Reset QR URL to current location');
+            });
+
+            // Landing: Create Room
+            document.getElementById('create-room-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const eventName = document.getElementById('event-name-input').value.trim();
+                const customCode = document.getElementById('custom-room-code-input').value.trim().toUpperCase();
+                const roomCode = customCode || generateRoomCode();
+                await enterRoom(roomCode, eventName, 'host');
+                showToast(`Room ${state.roomCode} ready!`, 'success');
+            });
+
+            // Landing: Join Room
+            document.getElementById('join-room-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const code = document.getElementById('join-room-code-input').value.trim().toUpperCase();
+                if (!code) return;
+                const mode = e.submitter?.getAttribute('data-mode') || 'participant';
+                await enterRoom(code, null, mode);
+            });
+
+            // Header Switcher (Host vs Phone View)
+            document.getElementById('switch-host-btn').addEventListener('click', () => {
+                state.mode = 'host';
+                updateBrowserQuery(state.roomCode, 'host');
+                setActiveView('host');
+            });
+            document.getElementById('switch-part-btn').addEventListener('click', () => {
+                state.mode = 'participant';
+                updateBrowserQuery(state.roomCode, 'participant');
+                updateParticipantCheckInCard();
+                setActiveView('participant');
+            });
+
+            // Mute Toggle
+            document.getElementById('mute-btn').addEventListener('click', (e) => {
+                state.muted = !state.muted;
+                e.currentTarget.textContent = state.muted ? '🔇' : '🔊';
+                showToast(state.muted ? 'Audio muted' : 'Audio unmuted');
+            });
+
+            // Copy Join Link
+            const copyJoinUrl = () => {
+                const url = buildJoinUrl(state.roomCode);
+                const temp = document.createElement('input');
+                temp.value = url;
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                document.body.removeChild(temp);
+                showToast('Participant join link copied!', 'success');
+            };
+            document.getElementById('copy-join-link-btn').addEventListener('click', copyJoinUrl);
+            document.getElementById('card-copy-link-btn').addEventListener('click', copyJoinUrl);
+
+            // Fullscreen QR Modal
+            const openBigQr = () => document.getElementById('big-qr-modal').classList.remove('hidden');
+            document.getElementById('open-big-qr-btn').addEventListener('click', openBigQr);
+            document.getElementById('card-fullscreen-qr-btn').addEventListener('click', openBigQr);
+            document.getElementById('close-big-qr-btn').addEventListener('click', () => {
+                document.getElementById('big-qr-modal').classList.add('hidden');
+            });
+            document.getElementById('big-qr-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'big-qr-modal') {
+                    document.getElementById('big-qr-modal').classList.add('hidden');
+                }
+            });
+
+            // Switch Room
+            document.getElementById('leave-room-btn').addEventListener('click', () => {
+                if (state.unsubRoom) state.unsubRoom();
+                if (state.unsubParticipants) state.unsubParticipants();
+                try {
+                    window.history.replaceState({}, '', window.location.pathname);
+                } catch (e) { /* ignore */ }
+                setActiveView('landing');
+            });
+
+            // Roster Tabs
+            const tabRosterBtn = document.getElementById('tab-roster-btn');
+            const tabWinnersBtn = document.getElementById('tab-winners-btn');
+            tabRosterBtn.addEventListener('click', () => {
+                state.activeTab = 'roster';
+                tabRosterBtn.className = 'py-3 px-3 font-black text-xs uppercase tracking-wider bg-ink text-white border-r-2 border-ink flex items-center justify-center gap-2';
+                tabWinnersBtn.className = 'py-3 px-3 font-black text-xs uppercase tracking-wider bg-paper text-ink hover:bg-white flex items-center justify-center gap-2';
+                document.getElementById('panel-roster').classList.remove('hidden');
+                document.getElementById('panel-winners').classList.add('hidden');
+            });
+            tabWinnersBtn.addEventListener('click', () => {
+                state.activeTab = 'winners';
+                tabWinnersBtn.className = 'py-3 px-3 font-black text-xs uppercase tracking-wider bg-ink text-white flex items-center justify-center gap-2';
+                tabRosterBtn.className = 'py-3 px-3 font-black text-xs uppercase tracking-wider bg-paper text-ink border-r-2 border-ink hover:bg-white flex items-center justify-center gap-2';
+                document.getElementById('panel-winners').classList.remove('hidden');
+                document.getElementById('panel-roster').classList.add('hidden');
+            });
+
+            // Roster Search
+            document.getElementById('roster-search-input').addEventListener('input', (e) => {
+                state.searchQuery = e.target.value;
+                renderListsAndCounts();
+            });
+
+            // Manual Add Participant
+            document.getElementById('manual-add-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const input = document.getElementById('manual-name-input');
+                const val = input.value.trim();
+                if (!val) return;
+                input.value = '';
+                await createParticipant(val, 'Added by Host');
+                showToast(`Added ${val}`, 'success');
+            });
+
+            // Export CSV
+            document.getElementById('export-csv-btn').addEventListener('click', () => {
+                if (state.participants.length === 0) {
+                    showToast('No participants to export', 'error');
+                    return;
+                }
+                const csvRows = [['Name', 'Affiliation', 'Won', 'Joined At']];
+                state.participants.forEach(p => {
+                    csvRows.push([
+                        `"${(p.name || '').replace(/"/g, '""')}"`,
+                        `"${(p.affiliation || '').replace(/"/g, '""')}"`,
+                        p.won ? 'YES' : 'NO',
+                        p.joinedAt ? new Date(p.joinedAt).toISOString() : ''
+                    ]);
+                });
+                const blob = new Blob([csvRows.map(r => r.join(',')).join('\n')], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${state.roomCode}_participants.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+
+            // Draw Winner & Spacebar
+            document.getElementById('draw-winner-btn').addEventListener('click', startRandomDraw);
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'Space' && state.mode === 'host' && !document.getElementById('host-view').classList.contains('hidden')) {
+                    const tag = document.activeElement?.tagName;
+                    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'BUTTON') {
+                        e.preventDefault();
+                        startRandomDraw();
+                    }
+                }
+            });
+
+            // Confirm Winner & Remove from Pool
+            document.getElementById('confirm-winner-btn').addEventListener('click', async () => {
+                if (!state.pendingWinner) return;
+                const winner = state.pendingWinner;
+                state.pendingWinner = null;
+                document.getElementById('post-draw-actions').classList.add('hidden');
+                await updateParticipant(winner.id, { won: true, wonAt: Date.now() });
+                showToast(`${winner.name} moved to Drawn Winners!`, 'success');
+            });
+
+            // Return to Pool
+            document.getElementById('return-to-pool-btn').addEventListener('click', async () => {
+                if (!state.pendingWinner) return;
+                const name = state.pendingWinner.name;
+                state.pendingWinner = null;
+                document.getElementById('post-draw-actions').classList.add('hidden');
+                const stageBox = document.getElementById('slot-stage-box');
+                stageBox.classList.remove('bg-mustard');
+                stageBox.classList.add('bg-paper');
+                document.getElementById('slot-status-text').textContent = 'RETURNED TO POOL';
+                document.getElementById('slot-winner-name').textContent = '? ? ?';
+                document.getElementById('slot-winner-affiliation').classList.add('hidden');
+                await updateRoomMeta({ activeWinner: null });
+                showToast(`${name} returned to pool`);
+            });
+
+            // Restore All Winners
+            document.getElementById('restore-all-btn').addEventListener('click', async () => {
+                const winners = state.participants.filter(p => p.won);
+                if (winners.length === 0) return;
+                const ok = await askConfirm('Restore All Winners', `Return all ${winners.length} confirmed winners back into the eligible pool?`);
+                if (!ok) return;
+                for (const w of winners) {
+                    await updateParticipant(w.id, { won: false, wonAt: null });
+                }
+                await updateRoomMeta({ activeWinner: null });
+                showToast('All winners restored to pool', 'success');
+            });
+
+            // Participant Mobile Check-In Submit
+            document.getElementById('part-checkin-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const nameInput = document.getElementById('part-name-input');
+                const affInput = document.getElementById('part-affiliation-input');
+                const btn = document.getElementById('part-submit-btn');
+
+                const name = nameInput.value.trim();
+                const affiliation = affInput.value.trim();
+                if (!name) return;
+
+                btn.disabled = true;
+                btn.textContent = 'Checking In...';
+
+                try {
+                    const newId = await createParticipant(name, affiliation);
+                    setSavedCheckIn({ id: newId, name, affiliation });
+                    nameInput.value = '';
+                    affInput.value = '';
+                    updateParticipantCheckInCard();
+                    showToast('Checked in! Good luck!', 'success');
+                } catch (err) {
+                    console.error('Check-in submit error:', err);
+                    showToast('Check-in failed. Try again.', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Submit & Join Raffle';
+                }
+            });
+
+            // Register Another Person
+            document.getElementById('register-another-btn').addEventListener('click', () => {
+                clearSavedCheckIn();
+                updateParticipantCheckInCard();
+            });
+        }
+
+        // ------------------------------------------------------------------
+        // 9. BOOTSTRAP & AUTHENTICATION FIRST (Rule 3)
+        // ------------------------------------------------------------------
+        async function bootstrap() {
+            checkSandboxBanner();
+            bindEvents();
+
+            const params = new URLSearchParams(window.location.search);
+            const urlRoom = params.get('room');
+            const urlMode = params.get('mode');
+            const targetMode = urlMode === 'join' ? 'participant' : 'host';
+
+            if (firebaseConfig) {
+                try {
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    currentUser = auth.currentUser;
+                    updateSyncStatusBadge(true);
+                } catch (err) {
+                    console.error('Firebase auth error:', err);
+                    updateSyncStatusBadge(false);
+                }
+            } else {
+                updateSyncStatusBadge(false);
+            }
+
+            if (urlRoom) {
+                await enterRoom(urlRoom, null, targetMode);
+            } else {
+                setActiveView('landing');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', bootstrap);
+    </script>
+
+
+      <script>
+        (function() {
+          // The root element's background fills the whole page. As in CSS,
+          // the body's background is used when the root element has none.
+          function getPageBackgroundColor() {
+            var docStyle = window.getComputedStyle(document.documentElement);
+            var color = docStyle.backgroundColor;
+            if ((color === 'rgba(0, 0, 0, 0)' || color === 'transparent') &&
+                docStyle.backgroundImage === 'none' && document.body) {
+              color = window.getComputedStyle(document.body).backgroundColor;
+            }
+            return color || '';
+          }
+
+          var lastReportedColor = '';
+          function reportBackgroundColor() {
+            try {
+              var color = getPageBackgroundColor();
+              if (color === lastReportedColor) return;
+              lastReportedColor = color;
+              window.parent.postMessage({
+                type: 'ATARI_CODE_EMBED_BACKGROUND_COLOR',
+                backgroundColor: color
+              }, '*');
+            } catch (e) {}
+          }
+
+          // The page background usually changes through an attribute on html
+          // or body (for example a theme class), a style sheet in head, or the
+          // system color scheme.
+          if (typeof MutationObserver !== 'undefined') {
+            var observer = new MutationObserver(reportBackgroundColor);
+            observer.observe(document.documentElement, {attributes: true});
+            if (document.body) {
+              observer.observe(document.body, {attributes: true});
+            }
+            if (document.head) {
+              observer.observe(document.head, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+                characterData: true
+              });
+            }
+          }
+          var colorSchemeQuery =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+          if (colorSchemeQuery && colorSchemeQuery.addEventListener) {
+            colorSchemeQuery.addEventListener('change', reportBackgroundColor);
+          }
+          window.addEventListener('load', reportBackgroundColor);
+          window.addEventListener('transitionend', reportBackgroundColor);
+          window.addEventListener('animationend', reportBackgroundColor);
+          reportBackgroundColor();
+        })();
+      </script>
+    </body></html>
