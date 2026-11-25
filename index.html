@@ -97,7 +97,7 @@
   </div>
   <div style="display:flex; gap:10px; align-items:center;">
     <span id="status-badge" class="badge">READY</span>
-    <button id="home-btn" class="btn hidden" style="padding:6px 12px; font-size:11px;" onclick="goHome()">Home</button>
+    <button id="home-btn" type="button" class="btn hidden" style="padding:6px 12px; font-size:11px;" onclick="goHome()">Home</button>
   </div>
 </header>
 
@@ -187,7 +187,7 @@
           <div style="font-size:12px; font-weight:800; text-transform:uppercase;">Scan to Register (1 Entry / Device)</div>
           <div class="qr-box"><div id="qr-small"></div></div>
           <div id="join-url-text" class="url-box"></div>
-          <button type="button" class="btn" style="font-size:11px; padding:8px 12px;" onclick="setHostedUrl()">Set GitHub Pages URL</button>
+          <button type="button" class="btn" style="font-size:11px; padding:8px 12px;" onclick="setHostedUrl()">Set Hosted URL</button>
         </div>
 
         <div class="card">
@@ -256,7 +256,7 @@
 
       <div id="p-locked" class="hidden">
         <div style="border:3px solid var(--ink); background:var(--bg); padding:18px; margin-bottom:14px;">
-          <div style="font-size:11px; font-weight:800; color:var(--blue); text-transform:uppercase;">✓ Entry Recorded &amp; Locked</div>
+          <div id="p-rec-status" style="font-size:11px; font-weight:800; color:var(--blue); text-transform:uppercase;">✓ Entry Recorded &amp; Locked</div>
           <div id="p-rec-name" style="font-size:24px; font-weight:800; margin:6px 0;"></div>
           <div id="p-rec-note" style="font-size:13px; color:#444;"></div>
           <div id="p-rec-time" style="font-family:monospace; font-size:11px; color:#666; margin-top:10px;"></div>
@@ -302,11 +302,11 @@
     conns: []
   };
 
-  const K_PINS = "bd_pins_v4";
-  const K_ROOMS = "bd_rooms_v4";
-  const K_LOCKS = "bd_locks_v4";
-  const K_DEV = "bd_dev_v4";
-  const K_URL = "bd_url_v4";
+  const K_PINS = "bd_pins_v5";
+  const K_ROOMS = "bd_rooms_v5";
+  const K_LOCKS = "bd_locks_v5";
+  const K_DEV = "bd_dev_v5";
+  const K_URL = "bd_url_v5";
 
   function getStore(k, def) {
     try { return JSON.parse(localStorage.getItem(k)) || def; } catch (e) { return def; }
@@ -376,7 +376,7 @@
     setStore(K_PINS, pins);
     saveRoom();
 
-    try { window.history.replaceState({}, "", "?room=" + encodeURIComponent(code)); } catch (e) {}
+    window.location.hash = "host/" + code;
     openHost();
     toast("Room " + code + " created!");
   }
@@ -407,6 +407,7 @@
     APP.winner = rooms[code].winner || null;
     APP.isHost = true;
     APP.qrLocked = false;
+    window.location.hash = "host/" + code;
     openHost();
     toast("Host unlocked");
   }
@@ -417,6 +418,7 @@
     APP.code = code;
     APP.isHost = false;
     APP.qrLocked = true;
+    window.location.hash = "join/" + code;
     openParticipant(code);
   }
 
@@ -434,18 +436,14 @@
     if (APP.peer) { try { APP.peer.destroy(); } catch (e) {} APP.peer = null; }
     APP.isHost = false;
     setStatus("READY");
-    try { window.history.replaceState({}, "", window.location.pathname); } catch (e) {}
+    history.replaceState(null, "", window.location.pathname + window.location.search);
     showSection("view-landing");
   }
 
   function getJoinUrl() {
     const custom = localStorage.getItem(K_URL);
-    let base = custom ? custom.trim() : (window.location.origin + window.location.pathname);
-    if (!base.endsWith("/") && !base.endsWith(".html")) base += "/";
-    const u = new URL(base);
-    u.searchParams.set("room", APP.code);
-    u.searchParams.set("mode", "join");
-    return u.toString();
+    let base = custom ? custom.trim() : window.location.href.split("#")[0].split("?")[0];
+    return base + "#join/" + encodeURIComponent(APP.code);
   }
 
   function renderQRs() {
@@ -467,8 +465,8 @@
   }
 
   function setHostedUrl() {
-    const cur = localStorage.getItem(K_URL) || "";
-    const val = prompt("Enter your hosted GitHub Pages URL (e.g. https://username.github.io/raffle/):", cur);
+    const cur = localStorage.getItem(K_URL) || window.location.href.split("#")[0].split("?")[0];
+    const val = prompt("Enter your hosted URL (e.g. https://username.github.io/raffle/):", cur);
     if (val !== null) {
       if (val.trim()) localStorage.setItem(K_URL, val.trim());
       else localStorage.removeItem(K_URL);
@@ -478,8 +476,24 @@
   }
 
   function copyLink() {
-    navigator.clipboard.writeText(getJoinUrl()).then(() => toast("Join link copied"));
+    const url = getJoinUrl();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => toast("Join link copied")).catch(() => fallbackCopy(url));
+    } else {
+      fallbackCopy(url);
+    }
   }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    toast("Join link copied");
+  }
+
   function openQrModal() { document.getElementById("qr-modal").classList.remove("hidden"); }
   function closeQrModal() { document.getElementById("qr-modal").classList.add("hidden"); }
 
@@ -525,7 +539,7 @@
   function hostAdd() {
     const n = document.getElementById("add-name").value.trim();
     const note = document.getElementById("add-note").value.trim();
-    if (!n) return;
+    if (!n) { toast("Enter a name"); return; }
     APP.list.push({ id: "m_" + Date.now(), name: n, note, won: false, ts: Date.now() });
     document.getElementById("add-name").value = "";
     document.getElementById("add-note").value = "";
@@ -577,7 +591,9 @@
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "raffle_" + APP.code + ".csv";
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   }
 
   function drawWinner() {
@@ -640,56 +656,102 @@
     APP.conns.forEach(c => { if (c.open) c.send({ type: "INFO", title: APP.title, winner: null }); });
   }
 
-  // PARTICIPANT VIEW (1 ENTRY PER DEVICE)
+  // PARTICIPANT VIEW (1 ENTRY PER DEVICE + RELIABLE DELIVERY)
   let guestConn = null;
+  let pendingPayload = null;
+
   function openParticipant(code) {
+    APP.code = code;
+    APP.isHost = false;
+    APP.qrLocked = true;
     showSection("view-participant");
     document.getElementById("p-code").textContent = code;
-    const locks = getStore(K_LOCKS, {});
-    if (locks[code]) showReceipt(locks[code]);
+    document.getElementById("p-title").textContent = "Room " + code + " Check-In";
 
+    const locks = getStore(K_LOCKS, {});
+    if (locks[code]) {
+      pendingPayload = { type: "JOIN", name: locks[code].name, note: locks[code].note, dev: locks[code].dev };
+      showReceipt(locks[code], locks[code].acked);
+    } else {
+      document.getElementById("p-form").classList.remove("hidden");
+      document.getElementById("p-locked").classList.add("hidden");
+    }
+
+    connectGuest(code);
+  }
+
+  function connectGuest(code) {
+    if (APP.peer) { try { APP.peer.destroy(); } catch (e) {} }
     if (typeof Peer === "undefined") return;
     setStatus("CONNECTING...");
     const p = new Peer();
     APP.peer = p;
+
     p.on("open", () => {
       const c = p.connect("bd-room-" + code.toLowerCase(), { reliable: true });
       guestConn = c;
-      c.on("open", () => setStatus("CONNECTED TO ROOM"));
+      c.on("open", () => {
+        setStatus("CONNECTED TO ROOM");
+        if (pendingPayload) {
+          c.send(pendingPayload);
+        }
+      });
       c.on("data", (m) => {
-        if (m && m.type === "INFO") {
+        if (!m) return;
+        if (m.type === "INFO") {
           if (m.title) document.getElementById("p-title").textContent = m.title;
           const wb = document.getElementById("p-winner-box");
           if (m.winner) {
             wb.classList.remove("hidden");
             document.getElementById("p-winner-name").textContent = m.winner;
           } else wb.classList.add("hidden");
+        } else if (m.type === "ACK") {
+          const locks = getStore(K_LOCKS, {});
+          if (locks[code]) {
+            locks[code].acked = true;
+            setStore(K_LOCKS, locks);
+            showReceipt(locks[code], true);
+          }
+          pendingPayload = null;
         }
       });
+      c.on("error", () => setStatus("WAITING FOR HOST..."));
     });
+
+    p.on("error", () => setStatus("OFFLINE / CHECK HOST"));
   }
 
   function submitParticipant() {
     const locks = getStore(K_LOCKS, {});
-    if (locks[APP.code]) { showReceipt(locks[APP.code]); return; }
+    if (locks[APP.code]) { showReceipt(locks[APP.code], locks[APP.code].acked); return; }
     const name = document.getElementById("p-name").value.trim();
     const note = document.getElementById("p-note").value.trim();
     if (!name) { toast("Please enter your name"); return; }
 
     const dev = getDevId();
-    const rec = { name, note, ts: Date.now(), dev };
-    if (guestConn && guestConn.open) {
-      guestConn.send({ type: "JOIN", name, note, dev });
-    }
+    const payload = { type: "JOIN", name, note, dev };
+    pendingPayload = payload;
+
+    const rec = { name, note, ts: Date.now(), dev, acked: false };
     locks[APP.code] = rec;
     setStore(K_LOCKS, locks);
-    showReceipt(rec);
-    toast("Entry recorded!");
+
+    if (guestConn && guestConn.open) {
+      guestConn.send(payload);
+    } else {
+      connectGuest(APP.code);
+    }
+
+    showReceipt(rec, false);
+    toast("Entry submitted!");
   }
 
-  function showReceipt(rec) {
+  function showReceipt(rec, acked) {
     document.getElementById("p-form").classList.add("hidden");
     document.getElementById("p-locked").classList.remove("hidden");
+    document.getElementById("p-rec-status").textContent = acked
+      ? "✓ Confirmed by Organizer & Locked"
+      : "✓ Recorded & Syncing to Organizer...";
     document.getElementById("p-rec-name").textContent = rec.name;
     document.getElementById("p-rec-note").textContent = rec.note || "Registered Participant";
     document.getElementById("p-rec-time").textContent = "CHECKED IN AT " + new Date(rec.ts).toLocaleTimeString();
@@ -699,31 +761,43 @@
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
 
-  // Boot
-  (function boot() {
+  function routeFromLocation() {
+    const hash = (window.location.hash || "").replace(/^#/, "");
     const q = new URLSearchParams(window.location.search);
-    const room = (q.get("room") || "").trim().toUpperCase();
-    const mode = (q.get("mode") || "").trim().toLowerCase();
-    if (room) {
-      APP.code = room;
+
+    if (hash.startsWith("join/")) {
+      const code = decodeURIComponent(hash.slice(5)).trim().toUpperCase();
+      if (code) { openParticipant(code); return; }
+    }
+    if (hash.startsWith("host/")) {
+      const code = decodeURIComponent(hash.slice(5)).trim().toUpperCase();
       const pins = getStore(K_PINS, {});
       const rooms = getStore(K_ROOMS, {});
-      if (mode !== "join" && pins[room] && rooms[room] && rooms[room].pin === pins[room]) {
-        APP.pin = pins[room];
-        APP.title = rooms[room].title;
-        APP.list = rooms[room].list || [];
-        APP.winner = rooms[room].winner || null;
+      if (code && pins[code] && rooms[code] && rooms[code].pin === pins[code]) {
+        APP.code = code;
+        APP.pin = pins[code];
+        APP.title = rooms[code].title;
+        APP.list = rooms[code].list || [];
+        APP.winner = rooms[code].winner || null;
         APP.isHost = true;
+        APP.qrLocked = false;
         openHost();
         return;
+      } else if (code) {
+        openParticipant(code);
+        return;
       }
-      APP.isHost = false;
-      APP.qrLocked = true;
-      openParticipant(room);
-    } else {
-      showSection("view-landing");
     }
-  })();
+    const qRoom = (q.get("room") || "").trim().toUpperCase();
+    if (qRoom) {
+      openParticipant(qRoom);
+      return;
+    }
+    showSection("view-landing");
+  }
+
+  window.addEventListener("hashchange", routeFromLocation);
+  routeFromLocation();
 </script>
 </body>
 </html>
